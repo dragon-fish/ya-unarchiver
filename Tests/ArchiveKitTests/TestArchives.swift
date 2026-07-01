@@ -35,6 +35,15 @@ enum TestArchives {
         return dir.appendingPathComponent("single.7z")
     }
 
+    /// Archive with two distinct top-level files, for selective-extraction tests.
+    static func twoFileArchive() throws -> URL {
+        let dir = try makeTempDir()
+        try "one".write(to: dir.appendingPathComponent("f1.txt"), atomically: true, encoding: .utf8)
+        try "two".write(to: dir.appendingPathComponent("f2.txt"), atomically: true, encoding: .utf8)
+        _ = try run7z(["a", "-bd", "two.7z", "f1.txt", "f2.txt"], cwd: dir)
+        return dir.appendingPathComponent("two.7z")
+    }
+
     /// Header-encrypted archive (needs password even to list).
     static func headerEncryptedArchive(password: String) throws -> URL {
         let dir = try makeTempDir()

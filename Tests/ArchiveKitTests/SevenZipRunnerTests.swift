@@ -42,6 +42,14 @@ final class SevenZipRunnerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: extracted.path))
     }
 
+    func test_extract_selected_only_writes_chosen_entries() throws {
+        let archive = try TestArchives.twoFileArchive()
+        let dest = try TestArchives.makeTempDir().appendingPathComponent("out")
+        try runner.extract(archive: archive, entries: ["f1.txt"], to: dest, password: nil)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dest.appendingPathComponent("f1.txt").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dest.appendingPathComponent("f2.txt").path))
+    }
+
     func test_extract_wrong_password_throws() throws {
         let archive = try TestArchives.headerEncryptedArchive(password: "SECRET")
         let dest = try TestArchives.makeTempDir().appendingPathComponent("out")
