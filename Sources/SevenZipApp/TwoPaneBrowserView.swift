@@ -30,8 +30,8 @@ struct TwoPaneBrowserView: BrowserLayout {
                 TableColumn("名称") { (n: ArchiveNode) in
                     Label(n.name, systemImage: n.isDirectory ? "folder" : "doc")
                 }
-                TableColumn("大小") { n in Text(Self.byteString(n.entry?.size)) }
-                TableColumn("压缩后") { n in Text(Self.byteString(n.entry?.packedSize)) }
+                TableColumn("大小") { n in Text(n.isDirectory ? "—" : Self.byteString(n.entry?.size)) }
+                TableColumn("压缩后") { n in Text(n.isDirectory ? "—" : Self.byteString(n.entry?.packedSize)) }
                 TableColumn("修改日期") { n in Text(Self.dateString(n.entry?.modified)) }
             }
         }
