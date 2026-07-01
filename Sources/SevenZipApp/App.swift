@@ -1,6 +1,29 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 import ArchiveKit
+
+/// Configures and runs an `NSOpenPanel` for picking a single archive file.
+/// Shared by the ⌘O menu command and the welcome-screen open button so the
+/// panel setup lives in exactly one place. Returns the chosen URL, or nil if
+/// the user cancels.
+@MainActor
+func presentArchiveOpenPanel() -> URL? {
+    let panel = NSOpenPanel()
+    panel.allowsMultipleSelection = false
+    panel.canChooseDirectories = false
+    // Restrict to the archive UTTypes declared in Info.plist's CFBundleDocumentTypes.
+    panel.allowedContentTypes = [
+        "public.zip-archive",
+        "org.7-zip.7-zip-archive",
+        "com.rarlab.rar-archive",
+        "public.tar-archive",
+        "org.gnu.gnu-zip-archive",
+        "public.archive",
+    ].compactMap { UTType($0) }
+    guard panel.runModal() == .OK else { return nil }
+    return panel.url
+}
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -45,10 +68,7 @@ struct SevenZipSwiftUIApp: App {
     }
 
     private func openArchivePanel() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        if panel.runModal() == .OK, let url = panel.url {
+        if let url = presentArchiveOpenPanel() {
             openWindow(value: url)
         }
     }
@@ -59,7 +79,11 @@ struct WelcomeView: View {
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: "archivebox").font(.system(size: 48)).foregroundStyle(.secondary)
-            Text("把压缩包拖到这里，或按 ⌘O 打开").foregroundStyle(.secondary)
+            Text("把压缩包拖到这里，或").foregroundStyle(.secondary)
+            Button("打开压缩包…") {
+                if let url = presentArchiveOpenPanel() { openWindow(value: url) }
+            }
+            .buttonStyle(.borderedProminent)
         }
         .frame(minWidth: 480, minHeight: 300)
         .dropDestination(for: URL.self) { urls, _ in
