@@ -1,6 +1,6 @@
 import Foundation
 
-public struct ArchiveEntry: Equatable {
+public struct ArchiveEntry: Equatable, Sendable {
     public let path: String
     public let size: Int64
     public let packedSize: Int64

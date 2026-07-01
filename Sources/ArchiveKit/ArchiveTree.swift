@@ -1,6 +1,9 @@
 import Foundation
 
-public final class ArchiveNode: Identifiable {
+// @unchecked Sendable: ArchiveTree.build fully constructs the tree before any
+// handoff; after a node is published to the MainActor it is never mutated
+// (children/entry are internal(set) and no code mutates them post-build).
+public final class ArchiveNode: Identifiable, @unchecked Sendable {
     public let id: String          // full path, "" for root
     public let name: String
     public let isDirectory: Bool

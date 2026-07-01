@@ -1,6 +1,6 @@
 import Foundation
 
-public final class SevenZipRunner {
+public final class SevenZipRunner: Sendable {
     private let executableURL: URL
 
     public init(executableURL: URL) {

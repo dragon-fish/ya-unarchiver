@@ -1,17 +1,6 @@
 import Foundation
 import ArchiveKit
 
-// ArchiveKit predates Swift 6 strict-concurrency needs. These types are safe to
-// transfer across the actor boundary the view model relies on:
-// - SevenZipRunner: immutable (single `let executableURL`).
-// - ArchiveEntry: value type of Sendable fields.
-// - ArchiveNode: mutated only while ArchiveTree.build constructs it; read-only
-//   (internal(set)) to consumers thereafter.
-// Declared here to keep this task scoped to the app target.
-extension SevenZipRunner: @unchecked Sendable {}
-extension ArchiveEntry: @unchecked Sendable {}
-extension ArchiveNode: @unchecked Sendable {}
-
 enum ArchiveState {
     case loading
     case loaded(ArchiveNode)
