@@ -41,8 +41,13 @@ final class ExtractionController {
 
         let runner = self.runner
         let dest = destination
+        let singleTopDir = ExtractionTarget.hasSingleTopLevelDirectory(entries)
         try await Task.detached {
-            try runner.extract(archive: archive, entries: selectedPaths, to: dest, password: password)
+            if let selectedPaths {
+                try runner.extract(archive: archive, entries: selectedPaths, to: dest, password: password)
+            } else {
+                try runner.extractAll(archive: archive, singleTopLevelDir: singleTopDir, to: dest, password: password)
+            }
         }.value
         return destination
     }

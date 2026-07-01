@@ -85,4 +85,26 @@ public final class SevenZipRunner: Sendable {
             )
         }
     }
+
+    /// Extracts the entire archive so that `finalFolder` directly contains the archive's
+    /// content, with no `foo/foo` double-nesting. If `singleTopLevelDir` is non-nil, the
+    /// archive's lone top-level directory's CONTENTS land directly in `finalFolder`
+    /// (implemented via extract-to-temp + move, which also makes numbered/renamed targets
+    /// work). If nil, all top-level entries are placed under `finalFolder` directly.
+    /// `finalFolder` must not already exist (the caller resolves collisions first).
+    public func extractAll(archive: URL, singleTopLevelDir: String?, to finalFolder: URL, password: String?) throws {
+        let fm = FileManager.default
+        guard let topDir = singleTopLevelDir else {
+            try extract(archive: archive, entries: nil, to: finalFolder, password: password)
+            return
+        }
+        // Extract into a temp dir on the SAME volume as the destination (so the move is a
+        // cheap rename), then move the single top-level directory into place.
+        let parent = finalFolder.deletingLastPathComponent()
+        let temp = parent.appendingPathComponent(".7zip-swiftui-extract-\(UUID().uuidString)")
+        try fm.createDirectory(at: temp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: temp) }
+        try extract(archive: archive, entries: nil, to: temp, password: password)
+        try fm.moveItem(at: temp.appendingPathComponent(topDir), to: finalFolder)
+    }
 }
