@@ -97,7 +97,8 @@ struct WelcomeView: View {
 struct ArchiveWindow: View {
     let archiveURL: URL
     @StateObject private var model: ArchiveViewModel
-    @State private var selection: ArchiveNode.ID?
+    @StateObject private var previewService: PreviewService
+    @State private var selection: Set<ArchiveNode.ID> = []
     @State private var passwordDraft = ""
     @State private var showPasswordSheet = false
     @State private var collisionContinuation: CheckedContinuation<CollisionChoice, Never>?
@@ -108,6 +109,10 @@ struct ArchiveWindow: View {
     init(archiveURL: URL) {
         self.archiveURL = archiveURL
         _model = StateObject(wrappedValue: ArchiveViewModel(archiveURL: archiveURL))
+        _previewService = StateObject(wrappedValue: PreviewService(
+            archiveURL: archiveURL,
+            runner: SevenZipLocator.bundledRunner()
+        ))
     }
 
     var body: some View {
@@ -118,12 +123,15 @@ struct ArchiveWindow: View {
                 ToolbarItemGroup {
                     Button { extractAll() } label: { Label("解压全部", systemImage: "arrow.down.doc") }
                         .disabled(isExtracting)
-                    Button { extractSelected() } label: { Label("解压选中", systemImage: "arrow.down.square") }
-                        .disabled(selection == nil || isExtracting)
+                    Button { extractSelected(selection) } label: { Label("解压选中", systemImage: "arrow.down.square") }
+                        .disabled(selection.isEmpty || isExtracting)
                 }
             }
             .onAppear { model.load() }
-            .onChange(of: model.stateID) { _ in if case .needsPassword = model.state { showPasswordSheet = true } }
+            .onChange(of: model.stateID) { _, _ in
+                if case .needsPassword = model.state { showPasswordSheet = true }
+                if case .loaded = model.state { previewService.password = model.password }
+            }
             .sheet(isPresented: $showPasswordSheet) {
                 PasswordPromptView(
                     password: $passwordDraft,
@@ -146,7 +154,13 @@ struct ArchiveWindow: View {
     @ViewBuilder private var content: some View {
         switch model.state {
         case .loading: ProgressView("正在读取…")
-        case .loaded(let root): TwoPaneBrowserView(root: root, selection: $selection)
+        case .loaded(let root):
+            TwoPaneBrowserView(
+                root: root,
+                selection: $selection,
+                previewService: previewService,
+                onExtractSelected: { ids in extractSelected(ids) }
+            )
         case .needsPassword:
             VStack(spacing: 12) {
                 Image(systemName: "lock.doc").font(.largeTitle)
@@ -161,9 +175,9 @@ struct ArchiveWindow: View {
     }
 
     private func extractAll() { runExtraction(selectedPaths: nil) }
-    private func extractSelected() {
-        guard let selection else { return }
-        runExtraction(selectedPaths: [selection])
+    private func extractSelected(_ ids: Set<ArchiveNode.ID>) {
+        guard !ids.isEmpty else { return }
+        runExtraction(selectedPaths: Array(ids))
     }
 
     private func runExtraction(selectedPaths: [String]?) {
