@@ -1,4 +1,5 @@
 import SwiftUI
+import QuickLook
 import ArchiveKit
 
 struct TwoPaneBrowserView: BrowserLayout {
@@ -9,6 +10,9 @@ struct TwoPaneBrowserView: BrowserLayout {
 
     /// The folder whose contents the right pane shows. "" is the archive root.
     @State private var currentDirectoryID: ArchiveNode.ID = ""
+
+    /// Non-nil while a file is shown in the QuickLook panel.
+    @State private var previewURL: URL?
 
     init(root: ArchiveNode,
          selection: Binding<Set<ArchiveNode.ID>>,
@@ -50,6 +54,7 @@ struct TwoPaneBrowserView: BrowserLayout {
             }
         }
         .onChange(of: currentDirectoryID) { _, _ in selection = [] }
+        .quickLookPreview($previewURL)
     }
 
     private var breadcrumbBar: some View {
@@ -83,6 +88,11 @@ struct TwoPaneBrowserView: BrowserLayout {
         } primaryAction: { ids in
             handlePrimaryAction(ids)
         }
+        .onKeyPress(.space) {
+            guard let file = singleSelectedFile else { return .ignored }
+            Task { previewURL = try? await previewService.url(for: file) }
+            return .handled
+        }
     }
 
     // MARK: - Navigation
@@ -97,19 +107,33 @@ struct TwoPaneBrowserView: BrowserLayout {
               let node = Self.find(id: id, in: root) else { return }
         if node.isDirectory {
             currentDirectoryID = node.id
+        } else {
+            Task { await previewService.open(node) }
         }
-        // File open/preview added in the next task.
     }
 
     // MARK: - Context menu (populated in the next task)
 
     @ViewBuilder
     private func contextMenu(for ids: Set<ArchiveNode.ID>) -> some View {
+        if ids.count == 1, let id = ids.first,
+           let node = Self.find(id: id, in: root), !node.isDirectory {
+            Button("用默认程序打开") { Task { await previewService.open(node) } }
+            Button("快速查看") { Task { previewURL = try? await previewService.url(for: node) } }
+            Divider()
+        }
         Button("解压选中…") { onExtractSelected(ids) }
             .disabled(ids.isEmpty)
     }
 
     // MARK: - Helpers
+
+    /// The selected node when exactly one file (not a directory) is selected.
+    private var singleSelectedFile: ArchiveNode? {
+        guard selection.count == 1, let id = selection.first,
+              let node = Self.find(id: id, in: root), !node.isDirectory else { return nil }
+        return node
+    }
 
     private static func find(id: ArchiveNode.ID, in node: ArchiveNode) -> ArchiveNode? {
         if node.id == id { return node }
