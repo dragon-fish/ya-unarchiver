@@ -1,6 +1,9 @@
 import Foundation
 
-/// Typed errors surfaced by ArchiveKit. Cases are added as tasks land.
 public enum ArchiveError: Error, Equatable {
-    case placeholder
+    case needsPassword
+    case wrongPassword
+    case corrupted(String)
+    case binaryNotFound
+    case executionFailed(code: Int32, message: String)
 }
