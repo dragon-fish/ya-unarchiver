@@ -3,8 +3,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CONFIG="${1:-debug}"
-APP_NAME="7zip-swiftui"
-BIN_NAME="7zip-swiftui"          # must match CFBundleExecutable
+APP_NAME="YAUnarchiver"
+BIN_NAME="YAUnarchiver"          # must match CFBundleExecutable
 EXEC_TARGET="SevenZipApp"        # SwiftPM product name
 
 SDK="$(xcrun --show-sdk-path)"

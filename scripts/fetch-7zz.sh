@@ -37,5 +37,5 @@ else
 fi
 
 echo "Verifying binary:"
-Resources/7zz | head -3
+Resources/7zz | head -3 || true
 echo "Placed Resources/7zz"

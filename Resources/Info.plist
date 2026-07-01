@@ -2,10 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key>            <string>7zip-swiftui</string>
-    <key>CFBundleDisplayName</key>     <string>7zip-swiftui</string>
-    <key>CFBundleIdentifier</key>      <string>com.xiaoyujun.sevenzip-swiftui</string>
-    <key>CFBundleExecutable</key>      <string>7zip-swiftui</string>
+    <key>CFBundleName</key>            <string>YA Unarchiver</string>
+    <key>CFBundleDisplayName</key>     <string>YA Unarchiver</string>
+    <key>CFBundleIdentifier</key>      <string>com.dragonfish.ya-unarchiver</string>
+    <key>CFBundleExecutable</key>      <string>YAUnarchiver</string>
     <key>CFBundlePackageType</key>     <string>APPL</string>
     <key>CFBundleShortVersionString</key> <string>0.1.0</string>
     <key>CFBundleVersion</key>         <string>1</string>

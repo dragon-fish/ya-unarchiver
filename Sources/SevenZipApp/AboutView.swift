@@ -10,7 +10,7 @@ struct AboutView: View {
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable()
                 .frame(width: 64, height: 64)
-            Text("7zip-swiftui").font(.title2).bold()
+            Text("YA Unarchiver").font(.title2).bold()
             Text("版本 \(appVersion)").font(.caption).foregroundStyle(.secondary)
             Divider().frame(width: 180)
             Text("压缩引擎：7-Zip \(engineVersion)")

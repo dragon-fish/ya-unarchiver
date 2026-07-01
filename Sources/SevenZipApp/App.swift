@@ -57,11 +57,11 @@ struct SevenZipSwiftUIApp: App {
                     .keyboardShortcut("o")
             }
             CommandGroup(replacing: .appInfo) {
-                Button("关于 7zip-swiftui") { openWindow(id: "about") }
+                Button("关于 YA Unarchiver") { openWindow(id: "about") }
             }
         }
 
-        Window("关于 7zip-swiftui", id: "about") {
+        Window("关于 YA Unarchiver", id: "about") {
             AboutView()
         }
         .windowResizability(.contentSize)

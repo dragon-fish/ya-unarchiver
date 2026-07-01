@@ -7,7 +7,7 @@
 # .build tree that build.sh uses.
 
 XCODE_DEV := /Applications/Xcode.app/Contents/Developer
-APP       := .build/7zip-swiftui.app
+APP       := .build/YAUnarchiver.app
 
 .DEFAULT_GOAL := help
 
@@ -17,7 +17,7 @@ help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "} {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
-build: ## Build the debug .app bundle (.build/7zip-swiftui.app)
+build: ## Build the debug .app bundle (.build/YAUnarchiver.app)
 	./scripts/build.sh
 
 release: ## Build the release .app bundle
