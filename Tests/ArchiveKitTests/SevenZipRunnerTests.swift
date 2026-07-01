@@ -33,4 +33,20 @@ final class SevenZipRunnerTests: XCTestCase {
             XCTAssertEqual(error as? ArchiveError, .binaryNotFound)
         }
     }
+
+    func test_extract_all_writes_files() throws {
+        let archive = try TestArchives.singleTopDirArchive()
+        let dest = try TestArchives.makeTempDir().appendingPathComponent("out")
+        try runner.extract(archive: archive, entries: nil, to: dest, password: nil)
+        let extracted = dest.appendingPathComponent("project/src/a.txt")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: extracted.path))
+    }
+
+    func test_extract_wrong_password_throws() throws {
+        let archive = try TestArchives.headerEncryptedArchive(password: "SECRET")
+        let dest = try TestArchives.makeTempDir().appendingPathComponent("out")
+        XCTAssertThrowsError(
+            try runner.extract(archive: archive, entries: nil, to: dest, password: "WRONG")
+        )
+    }
 }

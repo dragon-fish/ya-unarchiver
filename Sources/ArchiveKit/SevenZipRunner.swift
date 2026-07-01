@@ -53,4 +53,23 @@ public final class SevenZipRunner {
         }
         throw ArchiveError.corrupted(combined.trimmingCharacters(in: .whitespacesAndNewlines))
     }
+
+    public func extract(archive: URL, entries: [String]?, to destination: URL, password: String?) throws {
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        var args = ["x", "-bd", "-y", "-o\(destination.path)", "-p\(password ?? "")", archive.path]
+        if let entries {
+            args.append(contentsOf: entries)
+        }
+        let result = try run(args)
+        guard result.code == 0 else {
+            let combined = result.stdout + result.stderr
+            if combined.contains("Wrong password") || combined.contains("Headers Error") {
+                throw ArchiveError.wrongPassword
+            }
+            throw ArchiveError.executionFailed(
+                code: result.code,
+                message: combined.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+    }
 }
