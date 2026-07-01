@@ -70,6 +70,7 @@ struct ArchiveWindow: View {
     @State private var showPasswordSheet = false
     @State private var collisionContinuation: CheckedContinuation<CollisionChoice, Never>?
     @State private var collisionURL: URL?
+    @State private var isExtracting = false
     private let controller = ExtractionController(runner: SevenZipLocator.bundledRunner())
 
     init(archiveURL: URL) {
@@ -84,8 +85,9 @@ struct ArchiveWindow: View {
             .toolbar {
                 ToolbarItemGroup {
                     Button { extractAll() } label: { Label("解压全部", systemImage: "arrow.down.doc") }
+                        .disabled(isExtracting)
                     Button { extractSelected() } label: { Label("解压选中", systemImage: "arrow.down.square") }
-                        .disabled(selection == nil)
+                        .disabled(selection == nil || isExtracting)
                 }
             }
             .onAppear { model.load() }
@@ -113,7 +115,13 @@ struct ArchiveWindow: View {
         switch model.state {
         case .loading: ProgressView("正在读取…")
         case .loaded(let root): TwoPaneBrowserView(root: root, selection: $selection)
-        case .needsPassword: Color.clear   // sheet handles it
+        case .needsPassword:
+            VStack(spacing: 12) {
+                Image(systemName: "lock.doc").font(.largeTitle)
+                Button("输入密码") { showPasswordSheet = true }
+            }
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .error(let message):
             VStack { Image(systemName: "exclamationmark.triangle").font(.largeTitle); Text(message) }
                 .foregroundStyle(.secondary).padding()
@@ -127,7 +135,10 @@ struct ArchiveWindow: View {
     }
 
     private func runExtraction(selectedPaths: [String]?) {
+        guard !isExtracting else { return }
+        isExtracting = true
         Task {
+            defer { isExtracting = false }
             do {
                 _ = try await controller.extract(
                     archive: archiveURL,
