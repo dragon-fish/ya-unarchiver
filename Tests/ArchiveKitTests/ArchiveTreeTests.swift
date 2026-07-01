@@ -21,7 +21,9 @@ final class ArchiveTreeTests: XCTestCase {
         XCTAssertEqual(project.name, "project")
         XCTAssertTrue(project.isDirectory)
         XCTAssertEqual(Set(project.children.map(\.name)), ["src", "README.md"])
+        XCTAssertEqual(project.children.count, 2)
         let src = project.children.first { $0.name == "src" }!
+        XCTAssertNotNil(src.entry)
         XCTAssertEqual(src.children.map(\.name), ["a.txt"])
     }
 
@@ -32,6 +34,7 @@ final class ArchiveTreeTests: XCTestCase {
         let deep = root.children[0]
         XCTAssertEqual(deep.name, "deep")
         XCTAssertTrue(deep.isDirectory)
+        XCTAssertNil(deep.entry)
         XCTAssertEqual(deep.children[0].name, "nested")
         XCTAssertEqual(deep.children[0].children[0].name, "x.txt")
     }
