@@ -1,0 +1,24 @@
+7-Zip engine license
+====================
+
+YA Unarchiver bundles the official 7-Zip command-line binary (`7zz`) as its
+archiving engine. That binary is DOWNLOADED AT BUILD TIME by
+`scripts/fetch-7zz.sh` and is NOT included in this repository.
+
+The `7zz` binary is a product of the 7-Zip project by Igor Pavlov
+(https://www.7-zip.org) and is distributed under ITS OWN LICENSE, which is
+separate from — and not affected by — the Apache License 2.0 that covers this
+project's own source code (see the LICENSE file).
+
+7-Zip licensing summary (see https://www.7-zip.org/license.txt for the
+authoritative and complete text):
+
+  * Most of the 7-Zip source code is under the GNU LGPL version 2.1 or later.
+  * The unRAR code (used to decode RAR archives) is under a mixed license:
+    GNU LGPL + the "unRAR restriction" — the unRAR code may not be used to
+    develop software that can reconstruct the RAR compression algorithm.
+  * Some components (e.g. BZip2, AES) are under a BSD license.
+
+If you distribute an application that bundles `7zz`, you must comply with the
+7-Zip / LGPL terms for that binary. Refer to the official 7-Zip license linked
+above for the complete and authoritative terms.

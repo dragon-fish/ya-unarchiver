@@ -1,4 +1,4 @@
-# 7zip-swiftui — dev tasks
+# YA Unarchiver — dev tasks
 #
 # Note on toolchains: the app is built with the Command Line Tools SDK (via
 # scripts/build.sh), but the CLT SDK lacks XCTest, so `test` runs under the
