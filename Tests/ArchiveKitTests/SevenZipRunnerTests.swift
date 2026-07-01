@@ -57,4 +57,13 @@ final class SevenZipRunnerTests: XCTestCase {
             try runner.extract(archive: archive, entries: nil, to: dest, password: "WRONG")
         )
     }
+
+    func test_version_returns_a_version_number() throws {
+        let v = try runner.version()
+        XCTAssertFalse(v.isEmpty)
+        XCTAssertNotNil(
+            v.range(of: #"[0-9]+\.[0-9]+"#, options: .regularExpression),
+            "version should contain a major.minor number, got: \(v)"
+        )
+    }
 }

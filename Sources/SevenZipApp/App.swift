@@ -33,7 +33,15 @@ struct SevenZipSwiftUIApp: App {
                 Button("打开…") { openArchivePanel() }
                     .keyboardShortcut("o")
             }
+            CommandGroup(replacing: .appInfo) {
+                Button("关于 7zip-swiftui") { openWindow(id: "about") }
+            }
         }
+
+        Window("关于 7zip-swiftui", id: "about") {
+            AboutView()
+        }
+        .windowResizability(.contentSize)
     }
 
     private func openArchivePanel() {

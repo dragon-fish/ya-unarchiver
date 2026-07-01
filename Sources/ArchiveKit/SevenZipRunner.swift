@@ -34,6 +34,19 @@ public final class SevenZipRunner: Sendable {
         )
     }
 
+    /// Returns the 7-Zip version token (e.g. "25.01"), parsed from the banner.
+    public func version() throws -> String {
+        let result = try run(["i"])   // `7zz i` prints the banner + info, exits 0
+        let source = result.stdout.isEmpty ? result.stderr : result.stdout
+        let firstLine = source
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .first.map(String.init) ?? ""
+        if let range = firstLine.range(of: #"[0-9]+\.[0-9]+"#, options: .regularExpression) {
+            return String(firstLine[range])
+        }
+        return firstLine.trimmingCharacters(in: .whitespaces)
+    }
+
     public func list(archive: URL, password: String?) throws -> [ArchiveEntry] {
         var args = ["l", "-slt"]
         // -p with no password still disables the interactive prompt.
