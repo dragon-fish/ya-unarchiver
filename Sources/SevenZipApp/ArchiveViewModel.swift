@@ -12,6 +12,14 @@ enum ArchiveState {
 final class ArchiveViewModel: ObservableObject {
     let archiveURL: URL
     @Published var state: ArchiveState = .loading
+    var stateID: Int {
+        switch state {
+        case .loading: return 0
+        case .loaded: return 1
+        case .needsPassword: return 2
+        case .error: return 3
+        }
+    }
     private(set) var lastEntries: [ArchiveEntry] = []
     private(set) var password: String?
 

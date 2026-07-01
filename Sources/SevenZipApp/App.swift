@@ -7,48 +7,147 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
     }
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
-    }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }
 
 @main
 struct SevenZipSwiftUIApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
-        WindowGroup {
-            RootView()
+        WindowGroup(for: URL.self) { $url in
+            Group {
+                if let url {
+                    ArchiveWindow(archiveURL: url)
+                } else {
+                    WelcomeView()
+                }
+            }
+            // Spec §入口层: 处理 Finder 双击 / 拖到 Dock / `open` 传入的 open-file 事件，
+            // 统一收敛为「打开一个 archive URL」。onOpenURL 是 SwiftUI 对该事件的原生入口。
+            .onOpenURL { openWindow(value: $0) }
+        }
+        .commands {
+            CommandGroup(replacing: .newItem) {
+                Button("打开…") { openArchivePanel() }
+                    .keyboardShortcut("o")
+            }
+        }
+    }
+
+    private func openArchivePanel() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        if panel.runModal() == .OK, let url = panel.url {
+            openWindow(value: url)
         }
     }
 }
 
-struct RootView: View {
-    @StateObject private var model: ArchiveViewModel
+struct WelcomeView: View {
+    @Environment(\.openWindow) private var openWindow
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "archivebox").font(.system(size: 48)).foregroundStyle(.secondary)
+            Text("把压缩包拖到这里，或按 ⌘O 打开").foregroundStyle(.secondary)
+        }
+        .frame(minWidth: 480, minHeight: 300)
+        .dropDestination(for: URL.self) { urls, _ in
+            guard let url = urls.first else { return false }
+            openWindow(value: url)
+            return true
+        }
+    }
+}
 
-    init() {
-        let debug = ProcessInfo.processInfo.environment["SEVENZIP_DEBUG_ARCHIVE"]
-        let url = URL(fileURLWithPath: debug ?? "/dev/null")
-        _model = StateObject(wrappedValue: ArchiveViewModel(archiveURL: url))
+struct ArchiveWindow: View {
+    let archiveURL: URL
+    @StateObject private var model: ArchiveViewModel
+    @State private var selection: ArchiveNode.ID?
+    @State private var passwordDraft = ""
+    @State private var showPasswordSheet = false
+    @State private var collisionContinuation: CheckedContinuation<CollisionChoice, Never>?
+    @State private var collisionURL: URL?
+    private let controller = ExtractionController(runner: SevenZipLocator.bundledRunner())
+
+    init(archiveURL: URL) {
+        self.archiveURL = archiveURL
+        _model = StateObject(wrappedValue: ArchiveViewModel(archiveURL: archiveURL))
     }
 
-    @State private var selection: ArchiveNode.ID?
-
     var body: some View {
-        Group {
-            switch model.state {
-            case .loading:
-                ProgressView("正在读取…")
-            case .loaded(let root):
-                TwoPaneBrowserView(root: root, selection: $selection)
-            case .needsPassword:
-                Text("需要密码（Task 9 接入密码框）").foregroundStyle(.secondary)
-            case .error(let message):
-                VStack { Image(systemName: "exclamationmark.triangle"); Text(message) }
-                    .foregroundStyle(.secondary)
+        content
+            .frame(minWidth: 720, minHeight: 460)
+            .navigationTitle(archiveURL.lastPathComponent)
+            .toolbar {
+                ToolbarItemGroup {
+                    Button { extractAll() } label: { Label("解压全部", systemImage: "arrow.down.doc") }
+                    Button { extractSelected() } label: { Label("解压选中", systemImage: "arrow.down.square") }
+                        .disabled(selection == nil)
+                }
             }
+            .onAppear { model.load() }
+            .onChange(of: model.stateID) { _ in if case .needsPassword = model.state { showPasswordSheet = true } }
+            .sheet(isPresented: $showPasswordSheet) {
+                PasswordPromptView(
+                    password: $passwordDraft,
+                    onSubmit: { showPasswordSheet = false; model.load(password: passwordDraft) },
+                    onCancel: { showPasswordSheet = false }
+                )
+            }
+            .confirmationDialog(
+                "目标文件夹已存在",
+                isPresented: Binding(get: { collisionURL != nil }, set: { if !$0 { finishCollision(.cancel) } })
+            ) {
+                Button("解压到带序号的新文件夹") { finishCollision(.numbered) }
+                Button("删除原文件夹再解压", role: .destructive) { finishCollision(.deleteExisting) }
+                Button("取消", role: .cancel) { finishCollision(.cancel) }
+            } message: {
+                Text(collisionURL?.lastPathComponent ?? "")
+            }
+    }
+
+    @ViewBuilder private var content: some View {
+        switch model.state {
+        case .loading: ProgressView("正在读取…")
+        case .loaded(let root): TwoPaneBrowserView(root: root, selection: $selection)
+        case .needsPassword: Color.clear   // sheet handles it
+        case .error(let message):
+            VStack { Image(systemName: "exclamationmark.triangle").font(.largeTitle); Text(message) }
+                .foregroundStyle(.secondary).padding()
         }
-        .frame(minWidth: 720, minHeight: 460)
-        .onAppear { model.load() }
+    }
+
+    private func extractAll() { runExtraction(selectedPaths: nil) }
+    private func extractSelected() {
+        guard let selection else { return }
+        runExtraction(selectedPaths: [selection])
+    }
+
+    private func runExtraction(selectedPaths: [String]?) {
+        Task {
+            do {
+                _ = try await controller.extract(
+                    archive: archiveURL,
+                    entries: model.lastEntries,
+                    selectedPaths: selectedPaths,
+                    password: model.password,
+                    resolveCollision: { url in
+                        await withCheckedContinuation { cont in
+                            collisionContinuation = cont
+                            collisionURL = url
+                        }
+                    }
+                )
+            } catch { /* CancellationError or extraction failure — surfaced via alert in a later polish pass */ }
+        }
+    }
+
+    private func finishCollision(_ choice: CollisionChoice) {
+        collisionURL = nil
+        collisionContinuation?.resume(returning: choice)
+        collisionContinuation = nil
     }
 }
