@@ -11,7 +11,7 @@ SDK="$(xcrun --show-sdk-path)"
 echo "Building ($CONFIG)…"
 swift build -c "$CONFIG" \
     -Xswiftc -sdk -Xswiftc "$SDK" \
-    -Xswiftc -target -Xswiftc arm64-apple-macos13.0
+    -Xswiftc -target -Xswiftc arm64-apple-macos14.0
 
 BIN_DIR="$(swift build -c "$CONFIG" --show-bin-path)"
 APP=".build/${APP_NAME}.app"
