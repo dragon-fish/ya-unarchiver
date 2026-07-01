@@ -1653,6 +1653,135 @@ git commit -m "feat: bundle official 7zz binary for self-contained runtime"
 
 ---
 
+## Task 11: About panel showing bundled 7zz version (user-requested add-on)
+
+**Files:**
+- Modify: `Sources/ArchiveKit/SevenZipRunner.swift` (add `version()`)
+- Modify: `Tests/ArchiveKitTests/SevenZipRunnerTests.swift` (add version test)
+- Create: `Sources/SevenZipApp/AboutView.swift`
+- Modify: `Sources/SevenZipApp/App.swift` (About scene + menu command)
+
+**Interfaces:**
+- Produces: `public func version() throws -> String` on `SevenZipRunner` — returns the 7-Zip version token (e.g. `"25.01"`), parsed from the banner's first non-empty line.
+- Consumes: `run(_:)` (private, Task 3); `SevenZipLocator.bundledRunner()` (Task 7).
+
+Verified banner formats (first NON-EMPTY line; there is a leading blank line): bundled 7zz → `7-Zip (z) 25.01 (arm64) : Copyright (c) 1999-2025 Igor Pavlov : 2025-08-03`; system p7zip → `7-Zip [64] 17.05 : Copyright ...`. Both contain a `\d+\.\d+` token. `7zz i` exits 0 and prints this banner. `version()` is TDD-tested (against the system 7z via the existing `runner`); `AboutView` is build-verified only (UI target).
+
+- [ ] **Step 1: Write the failing test** — add to `Tests/ArchiveKitTests/SevenZipRunnerTests.swift`
+
+```swift
+    func test_version_returns_a_version_number() throws {
+        let v = try runner.version()
+        XCTAssertFalse(v.isEmpty)
+        XCTAssertNotNil(
+            v.range(of: #"[0-9]+\.[0-9]+"#, options: .regularExpression),
+            "version should contain a major.minor number, got: \(v)"
+        )
+    }
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter SevenZipRunnerTests`
+Expected: FAIL — `value of type 'SevenZipRunner' has no member 'version'`.
+
+- [ ] **Step 3: Add `version()` to `Sources/ArchiveKit/SevenZipRunner.swift`**
+
+Add this method inside the `SevenZipRunner` class:
+
+```swift
+    /// Returns the 7-Zip version token (e.g. "25.01"), parsed from the banner.
+    public func version() throws -> String {
+        let result = try run(["i"])   // `7zz i` prints the banner + info, exits 0
+        let source = result.stdout.isEmpty ? result.stderr : result.stdout
+        let firstLine = source
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .first.map(String.init) ?? ""
+        if let range = firstLine.range(of: #"[0-9]+\.[0-9]+"#, options: .regularExpression) {
+            return String(firstLine[range])
+        }
+        return firstLine.trimmingCharacters(in: .whitespaces)
+    }
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter SevenZipRunnerTests`
+Expected: PASS (returns `"17.05"` for the system p7zip).
+
+- [ ] **Step 5: Create `Sources/SevenZipApp/AboutView.swift`**
+
+```swift
+import SwiftUI
+import AppKit
+import ArchiveKit
+
+struct AboutView: View {
+    @State private var engineVersion = "…"
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 64, height: 64)
+            Text("7zip-swiftui").font(.title2).bold()
+            Text("版本 \(appVersion)").font(.caption).foregroundStyle(.secondary)
+            Divider().frame(width: 180)
+            Text("压缩引擎：7-Zip \(engineVersion)")
+                .font(.callout).foregroundStyle(.secondary)
+        }
+        .padding(28)
+        .frame(width: 300)
+        .task { await loadEngineVersion() }
+    }
+
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+    }
+
+    private func loadEngineVersion() async {
+        let runner = SevenZipLocator.bundledRunner()
+        engineVersion = await Task.detached { (try? runner.version()) ?? "不可用" }.value
+    }
+}
+```
+
+- [ ] **Step 6: Wire the About scene + menu command in `Sources/SevenZipApp/App.swift`**
+
+Add a second scene after the `WindowGroup(for: URL.self)` scene (inside the `body`'s scene builder):
+
+```swift
+        Window("关于 7zip-swiftui", id: "about") {
+            AboutView()
+        }
+        .windowResizability(.contentSize)
+```
+
+And in the existing `.commands { ... }`, add an app-info command group that opens it (the `@Environment(\.openWindow) private var openWindow` already exists on the App struct):
+
+```swift
+            CommandGroup(replacing: .appInfo) {
+                Button("关于 7zip-swiftui") { openWindow(id: "about") }
+            }
+```
+
+- [ ] **Step 7: Build + full test suite + passive launch check**
+
+Run: `./scripts/build.sh`
+Expected: builds clean.
+Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test`
+Expected: PASS (21 tests — 20 prior + the new version test).
+Run: `open .build/7zip-swiftui.app` and confirm via CGWindowList it launches without crashing. (Do NOT drive the menu/About window via accessibility — per the verification policy, opening the About panel and reading its text is part of the deferred human manual pass.)
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add Sources/ArchiveKit/SevenZipRunner.swift Tests/ArchiveKitTests/SevenZipRunnerTests.swift Sources/SevenZipApp/AboutView.swift Sources/SevenZipApp/App.swift
+git commit -m "feat: about panel showing bundled 7zz version"
+```
+
+---
+
 ## Self-Review
 
 **Spec coverage:**
