@@ -3,3 +3,6 @@
 .DS_Store
 .vscode/
 Resources/7zz
+*.xcodeproj
+xcuserdata/
+.swiftpm/
