@@ -1,0 +1,67 @@
+name: YAUnarchiver
+
+options:
+  bundleIdPrefix: com.dragonfish
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+packages:
+  ArchiveKit:
+    path: .
+
+targets:
+  YAUnarchiver:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Sources/SevenZipApp
+      - path: Resources/7zz
+        buildPhase: resources
+    dependencies:
+      - package: ArchiveKit
+        product: ArchiveKit
+    settings:
+      base:
+        INFOPLIST_FILE: Resources/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        PRODUCT_NAME: YAUnarchiver
+        PRODUCT_BUNDLE_IDENTIFIER: com.dragonfish.ya-unarchiver
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "6.0"
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        ENABLE_HARDENED_RUNTIME: NO
+    postBuildScripts:
+      - name: Ensure bundled 7zz is executable
+        basedOnDependencyAnalysis: false
+        script: |
+          BIN="$CODESIGNING_FOLDER_PATH/Contents/Resources/7zz"
+          if [ -f "$BIN" ]; then chmod +x "$BIN"; fi
+
+  ArchiveKitTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Tests/ArchiveKitTests
+    dependencies:
+      - package: ArchiveKit
+        product: ArchiveKit
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+
+schemes:
+  YAUnarchiver:
+    build:
+      targets:
+        YAUnarchiver: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - ArchiveKitTests
