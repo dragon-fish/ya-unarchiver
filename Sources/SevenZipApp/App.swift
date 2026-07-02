@@ -281,17 +281,21 @@ struct ArchiveWindow: View {
         runExtraction(selectedPaths: Array(ids))
     }
 
-    private func runExtraction(selectedPaths: [String]?) {
+    private func runExtraction(selectedPaths: [String]?, options: ExtractOptions? = nil) {
         guard !isExtracting else { return }
         isExtracting = true
         Task {
             defer { isExtracting = false; progress = nil }
+            let opts = options ?? ExtractOptions.defaults(
+                archive: archiveURL,
+                entries: model.lastEntries,
+                password: extractPassword ?? model.password ?? "")
             do {
                 let dest = try await controller.extract(
                     archive: archiveURL,
                     entries: model.lastEntries,
                     selectedPaths: selectedPaths,
-                    password: extractPassword ?? model.password,
+                    options: opts,
                     resolveCollision: { url in
                         await withCheckedContinuation { cont in
                             collisionContinuation = cont

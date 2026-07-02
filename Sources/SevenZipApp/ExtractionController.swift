@@ -16,49 +16,53 @@ final class ExtractionController {
     private let runner: SevenZipRunner
     init(runner: SevenZipRunner) { self.runner = runner }
 
-    /// Resolves destination per spec §5, handling collisions via the callback,
-    /// then extracts. Returns the final destination directory.
+    /// 用 `options` 解析目标、处理文件夹级碰撞,然后解压。返回最终目标目录。
     func extract(
         archive: URL,
         entries: [ArchiveEntry],
         selectedPaths: [String]?,
-        password: String?,
+        options: ExtractOptions,
         resolveCollision: (URL) async -> CollisionChoice,
         onProgress: @escaping @MainActor (_ completed: Int, _ total: Int) -> Void
     ) async throws -> URL {
         let fm = FileManager.default
-        let parent = archive.deletingLastPathComponent()
-        let baseName = ExtractionTarget.hasSingleTopLevelDirectory(entries)
-            ?? ExtractionTarget.archiveBaseName(archive)
-        let firstChoice = parent.appendingPathComponent(baseName)
+        let singleTopDir = ExtractionTarget.hasSingleTopLevelDirectory(entries)
+        let resolved = try options.resolveDestination(singleTopLevelDir: singleTopDir)
 
-        var destination = firstChoice
-        if fm.fileExists(atPath: firstChoice.path) {
-            switch await resolveCollision(firstChoice) {
-            case .cancel:
-                throw CancellationError()
-            case .deleteExisting:
-                try fm.removeItem(at: firstChoice)
-                destination = firstChoice
+        var destination = resolved.finalFolder
+        if !resolved.dumpIntoExisting && fm.fileExists(atPath: destination.path) {
+            switch options.overwriteMode {
+            case .ask:
+                switch await resolveCollision(destination) {
+                case .cancel:
+                    throw CancellationError()
+                case .deleteExisting:
+                    try fm.removeItem(at: destination)
+                case .numbered:
+                    destination = ExtractionTarget.numbered(
+                        base: resolved.finalFolder,
+                        directoryExists: { fm.fileExists(atPath: $0.path) })
+                }
             case .numbered:
-                destination = ExtractionTarget.resolve(
-                    archive: archive, entries: entries,
-                    directoryExists: { fm.fileExists(atPath: $0.path) }
-                )
+                destination = ExtractionTarget.numbered(
+                    base: resolved.finalFolder,
+                    directoryExists: { fm.fileExists(atPath: $0.path) })
+            case .deleteExisting:
+                try fm.removeItem(at: destination)
             }
         }
 
         let total = ExtractionProgress.totalEntryCount(entries: entries, selectedPaths: selectedPaths)
-        // Establish the overlay now that collisions are resolved and extraction is starting.
         onProgress(0, total)
 
         let runner = self.runner
         let dest = destination
-        let singleTopDir = ExtractionTarget.hasSingleTopLevelDirectory(entries)
+        let strip = resolved.stripTopDir
+        let password = options.password
         let counter = ProgressCounter()
         try await Task.detached {
             try runner.extract(archive: archive, entries: selectedPaths,
-                               singleTopLevelDir: singleTopDir, to: dest, password: password,
+                               singleTopLevelDir: strip, to: dest, password: password,
                                onEntryExtracted: {
                 let done = counter.increment()
                 Task { @MainActor in onProgress(done, total) }
