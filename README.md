@@ -34,24 +34,21 @@ experience.
 ## Requirements
 
 - macOS 14 or later.
-- To build: a Swift toolchain (Xcode or the Command Line Tools). Running the test
-  suite needs the full **Xcode** toolchain — the Command Line Tools SDK lacks
-  XCTest.
+- To build: **Xcode** (full toolchain) and **XcodeGen** (`brew install xcodegen`).
+  The Xcode project is generated from `project.yml` — the `.xcodeproj` itself is
+  not committed.
 
 ## Build & run
 
-The `7zz` engine binary is **not** committed to this repository. Fetch it once,
-then build:
-
 ```bash
-make fetch-7zz   # download the official 7zz into Resources/  (or: ./scripts/fetch-7zz.sh)
-make build       # assemble YAUnarchiver.app under .build/
-make run         # build, then launch
-make test        # run the unit tests
+brew install xcodegen   # one-time: the project is generated from project.yml
+make fetch-7zz          # download the official 7zz into Resources/
+make build              # xcodegen generate + xcodebuild → .build/DerivedData/…/YAUnarchiver.app
+make run                # build, then launch
+make test               # run the unit tests via xcodebuild
 ```
 
-Run `make` with no target to list all commands. The build uses pure Swift Package
-Manager — no Xcode project required.
+> Open in Xcode with `xcodegen generate && open YAUnarchiver.xcodeproj` (or `xed .`) to get live SwiftUI previews. The build uses a generated Xcode project (XcodeGen), with `ArchiveKit` as a local Swift Package dependency.
 
 ## License
 
