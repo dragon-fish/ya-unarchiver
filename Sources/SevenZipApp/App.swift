@@ -164,6 +164,9 @@ struct ArchiveWindow: View {
     private enum PasswordContext { case unlock, retryExtraction(selectedPaths: [String]?) }
     @State private var passwordContext: PasswordContext = .unlock
     @State private var progress: ExtractionProgressState?
+    @State private var showExtractDialog = false
+    @State private var extractDialogPaths: [String]? = nil   // nil = 全部
+    @State private var extractDialogError: String? = nil
     @AppStorage("postExtractAction") private var postExtractAction: PostExtractAction = .revealInFinder
     private let controller = ExtractionController(runner: SevenZipLocator.bundledRunner())
 
@@ -195,14 +198,26 @@ struct ArchiveWindow: View {
             }
             .toolbar {
                 ToolbarItemGroup {
-                    Button { extractAll() } label: { Label("解压全部", systemImage: "arrow.down.doc") }
-                        .labelStyle(.titleAndIcon)
-                        .buttonStyle(.borderedProminent)
-                        .disabled(isExtracting)
-                        .help("解压整个压缩包")
-                    Button { extractSelected(selection) } label: { Label("解压选中", systemImage: "arrow.down.square") }
-                        .disabled(selection.isEmpty || isExtracting)
-                        .help("解压当前选中的项目")
+                    Menu {
+                        Button("解压到…") { presentExtractDialog(paths: nil) }
+                    } label: {
+                        Label("解压全部", systemImage: "arrow.down.doc")
+                    } primaryAction: {
+                        extractAll()
+                    }
+                    .labelStyle(.titleAndIcon)
+                    .disabled(isExtracting)
+                    .help("解压整个压缩包(点右侧箭头可设选项)")
+
+                    Menu {
+                        Button("解压选中到…") { presentExtractDialog(paths: Array(selection)) }
+                    } label: {
+                        Label("解压选中", systemImage: "arrow.down.square")
+                    } primaryAction: {
+                        extractSelected(selection)
+                    }
+                    .disabled(selection.isEmpty || isExtracting)
+                    .help("解压当前选中的项目(点右侧箭头可设选项)")
                 }
             }
             .onAppear { model.load() }
@@ -250,6 +265,26 @@ struct ArchiveWindow: View {
             } message: {
                 Text(extractError ?? "")
             }
+            .sheet(isPresented: $showExtractDialog) {
+                ExtractOptionsView(
+                    defaults: ExtractOptions.defaults(
+                        archive: archiveURL,
+                        entries: extractDialogEntries,
+                        password: extractPassword ?? model.password ?? ""),
+                    singleTopLevelDir: ExtractionTarget.hasSingleTopLevelDirectory(extractDialogEntries),
+                    isEncrypted: model.password != nil,
+                    errorMessage: extractDialogError,
+                    onExtract: { opts in
+                        showExtractDialog = false
+                        extractDialogError = nil
+                        runExtraction(selectedPaths: extractDialogPaths, options: opts)
+                    },
+                    onCancel: {
+                        showExtractDialog = false
+                        extractDialogError = nil
+                    }
+                )
+            }
     }
 
     @ViewBuilder private var content: some View {
@@ -260,7 +295,7 @@ struct ArchiveWindow: View {
                 root: root,
                 selection: $selection,
                 previewService: previewService,
-                onExtractSelected: { ids in extractSelected(ids) }
+                onExtractSelected: { ids in presentExtractDialog(paths: Array(ids)) }
             )
         case .needsPassword:
             VStack(spacing: 12) {
@@ -279,6 +314,17 @@ struct ArchiveWindow: View {
     private func extractSelected(_ ids: Set<ArchiveNode.ID>) {
         guard !ids.isEmpty else { return }
         runExtraction(selectedPaths: Array(ids))
+    }
+
+    /// 对话框看到的 entries 始终是全量条目(用于单顶层目录检测与默认名);
+    /// 具体解压范围由 extractDialogPaths 决定。
+    private var extractDialogEntries: [ArchiveEntry] { model.lastEntries }
+
+    private func presentExtractDialog(paths: [String]?) {
+        guard !isExtracting else { return }
+        extractDialogPaths = paths
+        extractDialogError = nil
+        showExtractDialog = true
     }
 
     private func runExtraction(selectedPaths: [String]?, options: ExtractOptions? = nil) {
@@ -319,6 +365,11 @@ struct ArchiveWindow: View {
             } catch is CancellationError {
                 // user cancelled the collision dialog — stay silent
             } catch ArchiveError.wrongPassword {
+                if options != nil {
+                    extractDialogError = "密码错误，请重试"
+                    showExtractDialog = true
+                    return
+                }
                 passwordDraft = ""
                 passwordError = "密码错误，请重试"
                 passwordContext = .retryExtraction(selectedPaths: selectedPaths)
