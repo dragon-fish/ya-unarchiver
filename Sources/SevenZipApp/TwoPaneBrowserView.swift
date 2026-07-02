@@ -16,6 +16,10 @@ struct TwoPaneBrowserView: BrowserLayout {
     /// Non-nil while a file is shown in the QuickLook panel.
     @State private var previewURL: URL?
 
+    /// Path-bar folder icon size, tied to the `.callout` text metric (not a raw
+    /// literal) so it tracks the system text size.
+    @ScaledMetric(relativeTo: .callout) private var pathIconSize: CGFloat = 16
+
     init(root: ArchiveNode,
          selection: Binding<Set<ArchiveNode.ID>>,
          previewService: PreviewService,
@@ -26,7 +30,9 @@ struct TwoPaneBrowserView: BrowserLayout {
         self.onExtractSelected = onExtractSelected
     }
 
-    private var directorySubtree: [ArchiveNode] { root.children.filter(\.isDirectory) }
+    /// Sidebar directory ids currently expanded; auto-populated when navigating
+    /// so the tree reveals the folder you double-click into on the right.
+    @State private var expandedDirs: Set<ArchiveNode.ID> = []
 
     private var currentDirectory: ArchiveNode {
         Self.find(id: currentDirectoryID, in: root) ?? root
@@ -43,38 +49,68 @@ struct TwoPaneBrowserView: BrowserLayout {
     var body: some View {
         NavigationSplitView {
             List(selection: sidebarSelection) {
-                OutlineGroup(directorySubtree, id: \.id, children: \.directoryChildrenOrNil) { node in
-                    Label(node.name, systemImage: "folder")
-                }
+                SidebarTree(nodes: root.children, expanded: $expandedDirs)
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 240)
         } detail: {
             VStack(spacing: 0) {
-                breadcrumbBar
-                Divider()
                 fileTable
+                Divider()
+                pathBar
             }
         }
-        .onChange(of: currentDirectoryID) { _, _ in selection = [] }
+        .onChange(of: currentDirectoryID) { _, newID in
+            selection = []
+            // Reveal the current folder in the sidebar by expanding its ancestors.
+            for segment in Breadcrumb.segments(forPath: newID) {
+                expandedDirs.insert(segment.id)
+            }
+        }
         .quickLookPreview($previewURL)
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button { navigateToParent() } label: {
+                    Image(systemName: "arrowshape.turn.up.backward")
+                }
+                .disabled(currentDirectoryID.isEmpty)
+                .help("返回上一层")
+            }
+        }
     }
 
-    private var breadcrumbBar: some View {
-        HStack(spacing: 4) {
-            Button { navigateToParent() } label: { Image(systemName: "chevron.left") }
-                .buttonStyle(.borderless)
-                .disabled(currentDirectoryID.isEmpty)
-                .help("返回上一级")
-            Button("根目录") { currentDirectoryID = "" }
-                .buttonStyle(.link)
+    /// Finder-style path bar at the bottom of the file list: folder icon + name
+    /// segments separated by chevrons, click a segment to navigate there.
+    private var pathBar: some View {
+        HStack(spacing: 2) {
+            pathSegment(name: previewService.archiveURL.lastPathComponent, id: "")
             ForEach(Breadcrumb.segments(forPath: currentDirectoryID), id: \.id) { segment in
-                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
-                Button(segment.name) { currentDirectoryID = segment.id }
-                    .buttonStyle(.link)
+                Image(systemName: "chevron.right")
+                    .font(.callout)          // same text style as segments…
+                    .imageScale(.small)      // …rendered a size smaller, like Finder
+                    .foregroundStyle(.tertiary)
+                pathSegment(name: segment.name, id: segment.id)
             }
             Spacer()
         }
-        .padding(.horizontal, 12).padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .frame(height: 24)          // match Finder's path-bar height
+        .background(.bar)
+    }
+
+    private func pathSegment(name: String, id: ArchiveNode.ID) -> some View {
+        Button { currentDirectoryID = id } label: {
+            HStack(spacing: 4) {
+                Image(nsImage: NSWorkspace.shared.icon(for: .folder))
+                    .resizable()
+                    .frame(width: pathIconSize, height: pathIconSize)
+                Text(name).font(.callout)
+            }
+            .padding(.horizontal, 4)
+            .frame(maxHeight: .infinity)   // fill the bar height so the whole segment is clickable
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
     }
 
     /// Right-pane rows: folders first, then files, each in Finder-style
@@ -186,10 +222,36 @@ struct TwoPaneBrowserView: BrowserLayout {
     }
 }
 
-private extension ArchiveNode {
-    /// OutlineGroup wants nil for leaves; return only directory children.
-    var directoryChildrenOrNil: [ArchiveNode]? {
-        let dirs = children.filter(\.isDirectory)
-        return dirs.isEmpty ? nil : dirs
+/// Recursive directory-only sidebar with externally controlled expansion, so
+/// navigation on the right can programmatically expand the tree to the current
+/// folder. Each row is tagged with its node id to drive the List selection.
+private struct SidebarTree: View {
+    let nodes: [ArchiveNode]
+    @Binding var expanded: Set<ArchiveNode.ID>
+
+    var body: some View {
+        ForEach(directories) { node in
+            if node.children.contains(where: \.isDirectory) {
+                DisclosureGroup(isExpanded: binding(node.id)) {
+                    SidebarTree(nodes: node.children, expanded: $expanded)
+                } label: {
+                    Label(node.name, systemImage: "folder").tag(node.id)
+                }
+            } else {
+                Label(node.name, systemImage: "folder").tag(node.id)
+            }
+        }
+    }
+
+    private var directories: [ArchiveNode] {
+        nodes.filter(\.isDirectory)
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    private func binding(_ id: ArchiveNode.ID) -> Binding<Bool> {
+        Binding(
+            get: { expanded.contains(id) },
+            set: { if $0 { expanded.insert(id) } else { expanded.remove(id) } }
+        )
     }
 }
