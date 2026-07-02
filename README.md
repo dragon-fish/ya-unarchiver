@@ -33,7 +33,7 @@ experience.
 
 ## Requirements
 
-- macOS 13 or later.
+- macOS 14 or later.
 - To build: a Swift toolchain (Xcode or the Command Line Tools). Running the test
   suite needs the full **Xcode** toolchain — the Command Line Tools SDK lacks
   XCTest.
@@ -68,7 +68,6 @@ Manager — no Xcode project required.
 v1 ships **browsing + extraction**. Planned next:
 
 - Drag files out of an archive into Finder
-- Single-file QuickLook preview
 - Creating / compressing archives (with an optional, default-on *exclude dotfiles* choice)
 - Finder right-click extension
 
