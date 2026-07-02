@@ -2,17 +2,13 @@
 import PackageDescription
 
 let package = Package(
-    name: "7zip-swiftui",
+    name: "ArchiveKit",
     platforms: [.macOS(.v14)],
+    products: [
+        .library(name: "ArchiveKit", targets: ["ArchiveKit"]),
+    ],
     targets: [
         .target(name: "ArchiveKit"),
-        .executableTarget(
-            name: "SevenZipApp",
-            dependencies: ["ArchiveKit"]
-        ),
-        .testTarget(
-            name: "ArchiveKitTests",
-            dependencies: ["ArchiveKit"]
-        ),
+        .testTarget(name: "ArchiveKitTests", dependencies: ["ArchiveKit"]),
     ]
 )
