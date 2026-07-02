@@ -231,6 +231,12 @@ SCHEME  := YAUnarchiver
 DERIVED := .build/DerivedData
 APP     := $(DERIVED)/Build/Products/Debug/YAUnarchiver.app
 
+# The system `xcode-select` may point at the Command Line Tools, whose `xcodebuild`
+# can't build app targets. Pin xcodebuild to the full Xcode toolchain here so the
+# Makefile works regardless of the global selection (no sudo / xcode-select needed).
+XCODE_DEV := /Applications/Xcode.app/Contents/Developer
+XCODEBUILD := DEVELOPER_DIR=$(XCODE_DEV) xcodebuild
+
 .DEFAULT_GOAL := help
 .PHONY: help generate build run test clean fetch-7zz
 
@@ -249,14 +255,14 @@ fetch-7zz: ## Re-download the bundled 7zz binary (maintenance only)
 
 build: generate ## Build the debug .app bundle
 	@test -f Resources/7zz || ./scripts/fetch-7zz.sh
-	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -configuration Debug \
+	$(XCODEBUILD) -project $(PROJECT) -scheme $(SCHEME) -configuration Debug \
 		-derivedDataPath $(DERIVED) build
 
 run: build ## Build, then launch the app
 	open $(APP)
 
 test: generate ## Run the unit test suite via xcodebuild (Xcode toolchain)
-	xcodebuild test -project $(PROJECT) -scheme $(SCHEME) -configuration Debug \
+	$(XCODEBUILD) test -project $(PROJECT) -scheme $(SCHEME) -configuration Debug \
 		-destination 'platform=macOS' -derivedDataPath $(DERIVED)
 
 clean: ## Remove all build artifacts (.build, incl. DerivedData)
@@ -268,10 +274,10 @@ clean: ## Remove all build artifacts (.build, incl. DerivedData)
 Run: `make clean && make build`
 Expected: 先 `xcodegen generate`,再 `xcodebuild … build` → `** BUILD SUCCEEDED **`;`$(APP)` 存在。
 
-- [ ] **Step 3: 验证 make test(确认无需 DEVELOPER_DIR hack)**
+- [ ] **Step 3: 验证 make test**
 
 Run: `make test`
-Expected: `xcodebuild test` 用 Xcode 工具链跑通全部 `ArchiveKitTests`,`** TEST SUCCEEDED **`,无 "no such module 'XCTest'" 之类错误。若 `@testable` testability 报错,停下并回报完整错误。
+Expected: `xcodebuild test`(Makefile 内部已把 `DEVELOPER_DIR` pin 到 Xcode)用 Xcode 工具链跑通全部 `ArchiveKitTests`,`** TEST SUCCEEDED **`,无 "no such module 'XCTest'" 之类错误——旧的 `swift test` + scratch-path + module-cache 那套脆弱 hack 就此消除。若 `@testable` testability 报错,停下并回报完整错误。
 
 - [ ] **Step 4: 验证 make run 能定位并启动 .app**
 
@@ -369,7 +375,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ## 完成后(控制器 / 用户验证)
 
-- **消除 hack 确认**:`make test` 全绿且未用 `DEVELOPER_DIR=…`。
+- **消除 hack 确认**:`make test` 全绿,走 `xcodebuild`(Xcode 工具链),不再有 `swift test` + scratch-path + module-cache 那套脆弱流程。(Makefile 内部把 `DEVELOPER_DIR` pin 到 Xcode.app,是因为系统 `xcode-select` 指向 CLT;这是一行确定性配置,非脆弱 hack。)
 - **嵌套 7zz 可执行(主要风险)**:`make run` 后用真实压缩包在 GUI 里列目录 / 解压,确认 app 调用的是 bundle 内 7zz(关于面板显示 7-Zip 版本;能列出内容)。若列目录失败并回退到 `/opt/homebrew/bin/7z`,说明 bundle 内 7zz 不可执行或被签名拦截 → 按 spec 退路处理(chmod / disable-library-validation / 单独签名)。
 - **预览(用户验收)**:`xcodegen generate && open YAUnarchiver.xcodeproj`(或 `xed .`),打开 `TwoPaneBrowserView.swift`,画布 Resume → 样本目录树实时渲染。
 - **回归**:浏览、解压全部 / 解压选中、密码、双击打开 / 空格 QuickLook、底部路径栏 / 返回按钮 / 侧栏自动展开均正常(与迁移前一致,行为不应改变)。
