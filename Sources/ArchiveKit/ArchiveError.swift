@@ -6,4 +6,5 @@ public enum ArchiveError: Error, Equatable {
     case corrupted(String)
     case binaryNotFound
     case executionFailed(code: Int32, message: String)
+    case invalidDestination(String)
 }
