@@ -53,6 +53,8 @@ targets:
     settings:
       base:
         SWIFT_VERSION: "6.0"
+        # Synthesize an Info.plist for the test bundle so xcodebuild can code-sign it.
+        GENERATE_INFOPLIST_FILE: "YES"
 
 schemes:
   YAUnarchiver:
