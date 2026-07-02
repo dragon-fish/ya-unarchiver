@@ -68,3 +68,44 @@ public struct ExtractOptions: Sendable {
         return errors
     }
 }
+
+/// `resolveDestination` 的结果。
+public struct ResolvedDestination: Sendable, Equatable {
+    public let finalFolder: URL
+    public let dumpIntoExisting: Bool   // true = 直接铺进已存在容器(跳过文件夹级碰撞)
+    public let stripTopDir: String?     // 传给 runner 的 singleTopLevelDir
+}
+
+extension ExtractOptions {
+    /// 由选项 + 压缩包单顶层目录算出最终落点。非法则 fail-fast 抛 invalidDestination。
+    public func resolveDestination(singleTopLevelDir: String?,
+                                   fileManager fm: FileManager = .default) throws -> ResolvedDestination {
+        guard validate(fileManager: fm).isEmpty else {
+            throw ArchiveError.invalidDestination("解压位置或文件夹名无效")
+        }
+        let name = subfolderName.trimmingCharacters(in: .whitespaces)
+        if subfolderEnabled && !name.isEmpty {
+            return ResolvedDestination(
+                finalFolder: location.appendingPathComponent(name),
+                dumpIntoExisting: false,
+                stripTopDir: stripSingleTopDir ? singleTopLevelDir : nil
+            )
+        }
+        // 不建子文件夹:铺进容器,strip 不适用。
+        return ResolvedDestination(finalFolder: location, dumpIntoExisting: true, stripTopDir: nil)
+    }
+
+    /// 一键路默认选项。子文件夹名取「单顶层目录名 ?? 包名」以保持与旧一键行为逐字节一致。
+    public static func defaults(archive: URL, entries: [ArchiveEntry], password: String) -> ExtractOptions {
+        let baseName = ExtractionTarget.hasSingleTopLevelDirectory(entries)
+            ?? ExtractionTarget.archiveBaseName(archive)
+        return ExtractOptions(
+            location: archive.deletingLastPathComponent(),
+            subfolderEnabled: true,
+            subfolderName: baseName,
+            stripSingleTopDir: true,
+            overwriteMode: .ask,
+            password: password
+        )
+    }
+}

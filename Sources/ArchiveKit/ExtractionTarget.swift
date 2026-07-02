@@ -46,4 +46,18 @@ public enum ExtractionTarget {
         }
         return candidate
     }
+
+    /// Appends " 2", " 3", … to `base`'s last path component until it doesn't exist.
+    public static func numbered(base: URL, directoryExists: (URL) -> Bool) -> URL {
+        guard directoryExists(base) else { return base }
+        let parent = base.deletingLastPathComponent()
+        let name = base.lastPathComponent
+        var counter = 2
+        var candidate = parent.appendingPathComponent("\(name) \(counter)")
+        while directoryExists(candidate) {
+            counter += 1
+            candidate = parent.appendingPathComponent("\(name) \(counter)")
+        }
+        return candidate
+    }
 }

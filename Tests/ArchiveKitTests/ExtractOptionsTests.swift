@@ -60,4 +60,95 @@ final class ExtractOptionsTests: XCTestCase {
         XCTAssertFalse(url.path.contains(".."))
         XCTAssertTrue(url.path.hasSuffix("/Downloads"))
     }
+
+    private func entry(_ path: String, dir: Bool) -> ArchiveEntry {
+        ArchiveEntry(path: path, size: 0, packedSize: 0, modified: nil,
+                     isDirectory: dir, isEncrypted: false)
+    }
+
+    func test_resolve_subfolder_enabled_appends_name_and_strips() throws {
+        let dir = try tempDir()
+        let r = try options(location: dir, subName: "proj", strip: true)
+            .resolveDestination(singleTopLevelDir: "proj")
+        XCTAssertEqual(r.finalFolder, dir.appendingPathComponent("proj"))
+        XCTAssertFalse(r.dumpIntoExisting)
+        XCTAssertEqual(r.stripTopDir, "proj")
+    }
+
+    func test_resolve_strip_off_keeps_topdir() throws {
+        let dir = try tempDir()
+        let r = try options(location: dir, subName: "proj", strip: false)
+            .resolveDestination(singleTopLevelDir: "proj")
+        XCTAssertNil(r.stripTopDir)
+    }
+
+    func test_resolve_no_singletopdir_yields_nil_strip() throws {
+        let dir = try tempDir()
+        let r = try options(location: dir, subName: "proj", strip: true)
+            .resolveDestination(singleTopLevelDir: nil)
+        XCTAssertNil(r.stripTopDir)
+    }
+
+    func test_resolve_dump_when_subfolder_disabled() throws {
+        let dir = try tempDir()
+        let r = try options(location: dir, subEnabled: false, subName: "proj", strip: true)
+            .resolveDestination(singleTopLevelDir: "proj")
+        XCTAssertEqual(r.finalFolder, dir)
+        XCTAssertTrue(r.dumpIntoExisting)
+        XCTAssertNil(r.stripTopDir)
+    }
+
+    func test_resolve_dump_when_subfolder_name_empty() throws {
+        let dir = try tempDir()
+        let r = try options(location: dir, subName: "   ", strip: true)
+            .resolveDestination(singleTopLevelDir: "proj")
+        XCTAssertEqual(r.finalFolder, dir)
+        XCTAssertTrue(r.dumpIntoExisting)
+    }
+
+    func test_resolve_throws_on_invalid() throws {
+        let missing = URL(fileURLWithPath: "/no/such/dir-\(UUID().uuidString)")
+        XCTAssertThrowsError(try options(location: missing)
+            .resolveDestination(singleTopLevelDir: nil)) { error in
+            guard case ArchiveError.invalidDestination = error else {
+                return XCTFail("expected invalidDestination, got \(error)")
+            }
+        }
+    }
+
+    func test_defaults_match_legacy_target_single_topdir() throws {
+        let parent = try tempDir()
+        let archive = parent.appendingPathComponent("foo.7z")
+        let entries = [entry("proj", dir: true), entry("proj/a.txt", dir: false)]
+        let opts = ExtractOptions.defaults(archive: archive, entries: entries, password: "")
+        let top = ExtractionTarget.hasSingleTopLevelDirectory(entries)
+        let r = try opts.resolveDestination(singleTopLevelDir: top)
+        // Legacy: firstChoice = parent/(topdir ?? baseName) = parent/proj ; strip = topdir
+        XCTAssertEqual(r.finalFolder, parent.appendingPathComponent("proj"))
+        XCTAssertEqual(r.stripTopDir, "proj")
+    }
+
+    func test_defaults_match_legacy_target_no_topdir() throws {
+        let parent = try tempDir()
+        let archive = parent.appendingPathComponent("foo.7z")
+        let entries = [entry("a.txt", dir: false), entry("b.txt", dir: false)]
+        let opts = ExtractOptions.defaults(archive: archive, entries: entries, password: "")
+        let r = try opts.resolveDestination(singleTopLevelDir: nil)
+        XCTAssertEqual(r.finalFolder, parent.appendingPathComponent("foo"))
+        XCTAssertNil(r.stripTopDir)
+    }
+
+    func test_numbered_appends_suffix_until_free() {
+        var existing: Set<String> = ["/d/proj", "/d/proj 2"]
+        let out = ExtractionTarget.numbered(base: URL(fileURLWithPath: "/d/proj"),
+                                            directoryExists: { existing.contains($0.path) })
+        XCTAssertEqual(out, URL(fileURLWithPath: "/d/proj 3"))
+        _ = existing // silence unused-mutability
+    }
+
+    func test_numbered_returns_base_when_free() {
+        let out = ExtractionTarget.numbered(base: URL(fileURLWithPath: "/d/proj"),
+                                            directoryExists: { _ in false })
+        XCTAssertEqual(out, URL(fileURLWithPath: "/d/proj"))
+    }
 }
