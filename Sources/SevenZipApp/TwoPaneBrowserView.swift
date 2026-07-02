@@ -255,3 +255,41 @@ private struct SidebarTree: View {
         )
     }
 }
+
+// MARK: - Xcode Preview
+
+// PreviewProvider (not the #Preview macro) is used deliberately: the macro needs
+// Xcode's macro plugin, which the command-line `swift build` toolchain lacks.
+// This form compiles under both, and Xcode's canvas still shows it live.
+struct TwoPaneBrowserView_Previews: PreviewProvider {
+    static var previews: some View {
+        TwoPaneBrowserPreview()
+    }
+}
+
+/// Live-preview wrapper: a sample directory tree + a placeholder PreviewService
+/// (never actually invokes 7zz), so the layout can be iterated in Xcode's canvas.
+private struct TwoPaneBrowserPreview: View {
+    var body: some View {
+        let entries: [ArchiveEntry] = [
+            .init(path: "readme.md", size: 2048, packedSize: 900, modified: nil, isDirectory: false, isEncrypted: false),
+            .init(path: "images", size: 0, packedSize: 0, modified: nil, isDirectory: true, isEncrypted: false),
+            .init(path: "images/logo.png", size: 34567, packedSize: 30120, modified: nil, isDirectory: false, isEncrypted: false),
+            .init(path: "images/icons", size: 0, packedSize: 0, modified: nil, isDirectory: true, isEncrypted: false),
+            .init(path: "images/icons/star.svg", size: 1234, packedSize: 800, modified: nil, isDirectory: false, isEncrypted: false),
+            .init(path: "src", size: 0, packedSize: 0, modified: nil, isDirectory: true, isEncrypted: false),
+            .init(path: "src/main.swift", size: 5000, packedSize: 2100, modified: nil, isDirectory: false, isEncrypted: false),
+        ]
+        let service = PreviewService(
+            archiveURL: URL(fileURLWithPath: "/tmp/Sample.zip"),
+            runner: SevenZipRunner(executableURL: URL(fileURLWithPath: "/usr/bin/false"))
+        )
+        return TwoPaneBrowserView(
+            root: ArchiveTree.build(from: entries),
+            selection: .constant([]),
+            previewService: service,
+            onExtractSelected: { _ in }
+        )
+        .frame(width: 820, height: 520)
+    }
+}
