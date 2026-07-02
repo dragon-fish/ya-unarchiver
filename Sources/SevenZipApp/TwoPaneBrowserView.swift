@@ -1,5 +1,7 @@
 import SwiftUI
 import QuickLook
+import AppKit
+import UniformTypeIdentifiers
 import ArchiveKit
 
 struct TwoPaneBrowserView: BrowserLayout {
@@ -62,6 +64,7 @@ struct TwoPaneBrowserView: BrowserLayout {
             Button { navigateToParent() } label: { Image(systemName: "chevron.left") }
                 .buttonStyle(.borderless)
                 .disabled(currentDirectoryID.isEmpty)
+                .help("返回上一级")
             Button("根目录") { currentDirectoryID = "" }
                 .buttonStyle(.link)
             ForEach(Breadcrumb.segments(forPath: currentDirectoryID), id: \.id) { segment in
@@ -74,10 +77,24 @@ struct TwoPaneBrowserView: BrowserLayout {
         .padding(.horizontal, 12).padding(.vertical, 6)
     }
 
+    /// Right-pane rows: folders first, then files, each in Finder-style
+    /// natural name order.
+    private var sortedChildren: [ArchiveNode] {
+        currentDirectory.children.sorted { a, b in
+            if a.isDirectory != b.isDirectory { return a.isDirectory }
+            return a.name.localizedStandardCompare(b.name) == .orderedAscending
+        }
+    }
+
     private var fileTable: some View {
-        Table(currentDirectory.children, selection: $selection) {
+        Table(sortedChildren, selection: $selection) {
             TableColumn("名称") { (n: ArchiveNode) in
-                Label(n.name, systemImage: n.isDirectory ? "folder" : "doc")
+                HStack(spacing: 6) {
+                    Image(nsImage: Self.icon(for: n))
+                        .resizable()
+                        .frame(width: 16, height: 16)
+                    Text(n.name)
+                }
             }
             TableColumn("大小") { n in Text(n.isDirectory ? "—" : Self.byteString(n.entry?.size)) }
             TableColumn("压缩后") { n in Text(n.isDirectory ? "—" : Self.byteString(n.entry?.packedSize)) }
@@ -141,6 +158,19 @@ struct TwoPaneBrowserView: BrowserLayout {
             if let found = find(id: id, in: child) { return found }
         }
         return nil
+    }
+
+    /// System (Finder) icon for a node, resolved by UTI: real folder icon for
+    /// directories, the type's associated icon (by file extension) for files.
+    private static func icon(for node: ArchiveNode) -> NSImage {
+        let type: UTType
+        if node.isDirectory {
+            type = .folder
+        } else {
+            let ext = (node.name as NSString).pathExtension
+            type = UTType(filenameExtension: ext) ?? .data
+        }
+        return NSWorkspace.shared.icon(for: type)
     }
 
     private static func byteString(_ v: Int64?) -> String {

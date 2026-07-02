@@ -122,9 +122,13 @@ struct ArchiveWindow: View {
             .toolbar {
                 ToolbarItemGroup {
                     Button { extractAll() } label: { Label("解压全部", systemImage: "arrow.down.doc") }
+                        .labelStyle(.titleAndIcon)
+                        .buttonStyle(.borderedProminent)
                         .disabled(isExtracting)
+                        .help("解压整个压缩包")
                     Button { extractSelected(selection) } label: { Label("解压选中", systemImage: "arrow.down.square") }
                         .disabled(selection.isEmpty || isExtracting)
+                        .help("解压当前选中的项目")
                 }
             }
             .onAppear { model.load() }
