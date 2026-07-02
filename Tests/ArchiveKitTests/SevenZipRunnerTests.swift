@@ -108,4 +108,31 @@ final class SevenZipRunnerTests: XCTestCase {
             "version should contain a major.minor number, got: \(v)"
         )
     }
+
+    func test_isEntryLine_matches_only_entry_lines() {
+        XCTAssertTrue(SevenZipRunner.isEntryLine("- big/sub/f001.bin"))
+        XCTAssertTrue(SevenZipRunner.isEntryLine("- big/"))
+        XCTAssertFalse(SevenZipRunner.isEntryLine("Everything is Ok"))
+        XCTAssertFalse(SevenZipRunner.isEntryLine("Extracting archive: /tmp/a.7z"))
+        XCTAssertFalse(SevenZipRunner.isEntryLine("--"))
+        XCTAssertFalse(SevenZipRunner.isEntryLine(""))
+    }
+
+    func test_extract_reports_per_entry_progress() throws {
+        // Proves -bb1 streams per-entry lines through a Pipe (non-TTY), so the callback fires.
+        final class Counter: @unchecked Sendable {
+            private let lock = NSLock()
+            private var value = 0
+            func bump() { lock.lock(); value += 1; lock.unlock() }
+            var count: Int { lock.lock(); defer { lock.unlock() }; return value }
+        }
+        let archive = try TestArchives.twoFileArchive()     // f1.txt, f2.txt
+        let dest = try TestArchives.makeTempDir().appendingPathComponent("out")
+        let counter = Counter()
+        try runner.extract(archive: archive, entries: nil, to: dest, password: nil,
+                           onEntryExtracted: { counter.bump() })
+        XCTAssertGreaterThanOrEqual(counter.count, 2, "should report at least one line per extracted file")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dest.appendingPathComponent("f1.txt").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dest.appendingPathComponent("f2.txt").path))
+    }
 }

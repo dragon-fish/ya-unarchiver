@@ -34,6 +34,59 @@ public final class SevenZipRunner: Sendable {
         )
     }
 
+    /// True when a `7zz x -bb1` output line announces an extracted entry (file or dir).
+    /// Entry lines look like `- some/path`; banner, `--`, and summary lines do not match.
+    public static func isEntryLine(_ line: String) -> Bool {
+        line.hasPrefix("- ")
+    }
+
+    /// Like `run`, but reads stdout incrementally and invokes `onLine` for each complete
+    /// line as it arrives (used to stream `-bb1` per-entry progress). stderr is read to end
+    /// afterwards for error classification, matching `run`.
+    private func runStreaming(_ arguments: [String], onLine: @Sendable (String) -> Void) throws -> RunResult {
+        guard FileManager.default.isExecutableFile(atPath: executableURL.path) else {
+            throw ArchiveError.binaryNotFound
+        }
+        let process = Process()
+        process.executableURL = executableURL
+        process.arguments = arguments
+        let outPipe = Pipe(), errPipe = Pipe()
+        process.standardOutput = outPipe
+        process.standardError = errPipe
+        do {
+            try process.run()
+        } catch {
+            throw ArchiveError.binaryNotFound
+        }
+        let outHandle = outPipe.fileHandleForReading
+        var stdoutText = ""
+        var buffer = Data()
+        while true {
+            let chunk = outHandle.availableData
+            if chunk.isEmpty { break }   // EOF
+            buffer.append(chunk)
+            while let nl = buffer.firstIndex(of: 0x0A) {   // 0x0A == '\n'
+                let lineData = buffer.subdata(in: buffer.startIndex..<nl)
+                let line = String(decoding: lineData, as: UTF8.self)
+                stdoutText += line + "\n"
+                onLine(line)
+                buffer.removeSubrange(buffer.startIndex...nl)
+            }
+        }
+        if !buffer.isEmpty {   // trailing line without newline
+            let line = String(decoding: buffer, as: UTF8.self)
+            stdoutText += line
+            onLine(line)
+        }
+        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return RunResult(
+            code: process.terminationStatus,
+            stdout: stdoutText,
+            stderr: String(decoding: errData, as: UTF8.self)
+        )
+    }
+
     /// Returns the 7-Zip version token (e.g. "25.01"), parsed from the banner.
     public func version() throws -> String {
         let result = try run(["i"])   // `7zz i` prints the banner + info, exits 0
@@ -67,13 +120,24 @@ public final class SevenZipRunner: Sendable {
         throw ArchiveError.corrupted(combined.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
-    public func extract(archive: URL, entries: [String]?, to destination: URL, password: String?) throws {
+    public func extract(archive: URL, entries: [String]?, to destination: URL, password: String?,
+                        onEntryExtracted: (@Sendable () -> Void)? = nil) throws {
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
-        var args = ["x", "-bd", "-y", "-o\(destination.path)", "-p\(password ?? "")", archive.path]
+        var args = ["x", "-bd", "-y", "-o\(destination.path)", "-p\(password ?? "")"]
+        // -bb1 makes 7zz log one line per extracted entry so we can report progress.
+        if onEntryExtracted != nil { args.append("-bb1") }
+        args.append(archive.path)
         if let entries {
             args.append(contentsOf: entries)
         }
-        let result = try run(args)
+        let result: RunResult
+        if let onEntryExtracted {
+            result = try runStreaming(args) { line in
+                if SevenZipRunner.isEntryLine(line) { onEntryExtracted() }
+            }
+        } else {
+            result = try run(args)
+        }
         guard result.code == 0 else {
             let combined = result.stdout + result.stderr
             if combined.contains("Wrong password") || combined.contains("Headers Error") {
@@ -100,17 +164,20 @@ public final class SevenZipRunner: Sendable {
     ///
     /// `finalFolder` must not already exist (the caller resolves collisions first).
     public func extract(archive: URL, entries: [String]?, singleTopLevelDir: String?,
-                        to finalFolder: URL, password: String?) throws {
+                        to finalFolder: URL, password: String?,
+                        onEntryExtracted: (@Sendable () -> Void)? = nil) throws {
         let fm = FileManager.default
         guard let topDir = singleTopLevelDir else {
-            try extract(archive: archive, entries: entries, to: finalFolder, password: password)
+            try extract(archive: archive, entries: entries, to: finalFolder, password: password,
+                        onEntryExtracted: onEntryExtracted)
             return
         }
         let parent = finalFolder.deletingLastPathComponent()
         let temp = parent.appendingPathComponent(".7zip-swiftui-extract-\(UUID().uuidString)")
         try fm.createDirectory(at: temp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: temp) }
-        try extract(archive: archive, entries: entries, to: temp, password: password)
+        try extract(archive: archive, entries: entries, to: temp, password: password,
+                    onEntryExtracted: onEntryExtracted)
         try fm.moveItem(at: temp.appendingPathComponent(topDir), to: finalFolder)
     }
 }

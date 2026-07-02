@@ -163,6 +163,7 @@ struct ArchiveWindow: View {
     @State private var extractPassword: String?   // password confirmed for extraction, overrides model.password
     private enum PasswordContext { case unlock, retryExtraction(selectedPaths: [String]?) }
     @State private var passwordContext: PasswordContext = .unlock
+    @State private var progress: ExtractionProgressState?
     @AppStorage("postExtractAction") private var postExtractAction: PostExtractAction = .revealInFinder
     private let controller = ExtractionController(runner: SevenZipLocator.bundledRunner())
 
@@ -185,6 +186,11 @@ struct ArchiveWindow: View {
                           onOpenFinder: { NSWorkspace.shared.activateFileViewerSelecting([toast.folderURL]) })
                         .padding(.bottom, 40)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .overlay {
+                if let progress {
+                    ExtractionProgressOverlay(state: progress)
                 }
             }
             .toolbar {
@@ -279,7 +285,7 @@ struct ArchiveWindow: View {
         guard !isExtracting else { return }
         isExtracting = true
         Task {
-            defer { isExtracting = false }
+            defer { isExtracting = false; progress = nil }
             do {
                 let dest = try await controller.extract(
                     archive: archiveURL,
@@ -291,6 +297,11 @@ struct ArchiveWindow: View {
                             collisionContinuation = cont
                             collisionURL = url
                         }
+                    },
+                    onProgress: { completed, total in
+                        progress = (completed > 0 && total > 0)
+                            ? .determinate(fraction: min(1, Double(completed) / Double(total)))
+                            : .indeterminate
                     }
                 )
                 switch postExtractAction {
