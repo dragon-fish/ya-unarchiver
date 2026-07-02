@@ -131,6 +131,7 @@ struct TwoPaneBrowserView: BrowserLayout {
                         .frame(width: 16, height: 16)
                     Text(n.name)
                 }
+                .onDrag { makeDragProvider(n) }
             }
             TableColumn("大小") { n in Text(n.isDirectory ? "—" : Self.byteString(n.entry?.size)) }
             TableColumn("压缩后") { n in Text(n.isDirectory ? "—" : Self.byteString(n.entry?.packedSize)) }
@@ -186,6 +187,34 @@ struct TwoPaneBrowserView: BrowserLayout {
         guard selection.count == 1, let id = selection.first,
               let node = Self.find(id: id, in: root), !node.isDirectory else { return nil }
         return node
+    }
+
+    // MARK: - Drag out to Finder
+
+    /// Builds a lazy file-promise provider: Finder only triggers extraction when the
+    /// user actually drops. Reuses PreviewService's on-demand extraction + per-window
+    /// temp dir + cache. A file extracts to a single file; a directory extracts its
+    /// whole subtree. Finder lands the item by its leaf name, so there is no prefix issue.
+    private func makeDragProvider(_ node: ArchiveNode) -> NSItemProvider {
+        let provider = NSItemProvider()
+        let type: UTType = node.isDirectory
+            ? .folder
+            : (UTType(filenameExtension: (node.name as NSString).pathExtension) ?? .data)
+        provider.suggestedName = node.name
+        let previewService = self.previewService
+        provider.registerFileRepresentation(forTypeIdentifier: type.identifier,
+                                             fileOptions: [], visibility: .all) { completion in
+            Task { @MainActor in
+                do {
+                    let url = try await previewService.url(for: node)
+                    completion(url, false, nil)   // false = coordinated copy, keep our temp file
+                } catch {
+                    completion(nil, false, error)
+                }
+            }
+            return nil
+        }
+        return provider
     }
 
     private static func find(id: ArchiveNode.ID, in node: ArchiveNode) -> ArchiveNode? {

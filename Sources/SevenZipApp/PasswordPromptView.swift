@@ -2,12 +2,18 @@ import SwiftUI
 
 struct PasswordPromptView: View {
     @Binding var password: String
+    var errorMessage: String? = nil
     let onSubmit: () -> Void
     let onCancel: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("此压缩包已加密").font(.headline)
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+            }
             SecureField("密码", text: $password)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 260)

@@ -58,30 +58,46 @@ final class SevenZipRunnerTests: XCTestCase {
         )
     }
 
-    func test_extractAll_single_top_dir_does_not_double_nest() throws {
+    func test_extract_single_top_dir_does_not_double_nest() throws {
         let archive = try TestArchives.singleTopDirArchive()          // entries under project/
         let finalFolder = try TestArchives.makeTempDir().appendingPathComponent("project")
-        try runner.extractAll(archive: archive, singleTopLevelDir: "project", to: finalFolder, password: nil)
+        try runner.extract(archive: archive, entries: nil, singleTopLevelDir: "project",
+                           to: finalFolder, password: nil)
         let fm = FileManager.default
         XCTAssertTrue(fm.fileExists(atPath: finalFolder.appendingPathComponent("src/a.txt").path))
         XCTAssertFalse(fm.fileExists(atPath: finalFolder.appendingPathComponent("project").path),
                        "must not double-nest as project/project")
     }
 
-    func test_extractAll_single_top_dir_into_numbered_folder() throws {
+    func test_extract_single_top_dir_into_numbered_folder() throws {
         let archive = try TestArchives.singleTopDirArchive()
         let finalFolder = try TestArchives.makeTempDir().appendingPathComponent("project 2")
-        try runner.extractAll(archive: archive, singleTopLevelDir: "project", to: finalFolder, password: nil)
+        try runner.extract(archive: archive, entries: nil, singleTopLevelDir: "project",
+                           to: finalFolder, password: nil)
         XCTAssertTrue(FileManager.default.fileExists(atPath: finalFolder.appendingPathComponent("src/a.txt").path))
     }
 
-    func test_extractAll_wrap_case_places_entries_under_final_folder() throws {
+    func test_extract_wrap_case_places_entries_under_final_folder() throws {
         let archive = try TestArchives.twoFileArchive()
         let finalFolder = try TestArchives.makeTempDir().appendingPathComponent("bundle")
-        try runner.extractAll(archive: archive, singleTopLevelDir: nil, to: finalFolder, password: nil)
+        try runner.extract(archive: archive, entries: nil, singleTopLevelDir: nil,
+                           to: finalFolder, password: nil)
         let fm = FileManager.default
         XCTAssertTrue(fm.fileExists(atPath: finalFolder.appendingPathComponent("f1.txt").path))
         XCTAssertTrue(fm.fileExists(atPath: finalFolder.appendingPathComponent("f2.txt").path))
+    }
+
+    func test_extract_selected_subset_under_single_top_dir_strips_prefix() throws {
+        // b1 regression: selecting a single entry inside a single-top-dir archive
+        // must land at finalFolder/<relative-to-topdir>, NOT finalFolder/project/…
+        let archive = try TestArchives.singleTopDirArchive()          // project/src/a.txt
+        let finalFolder = try TestArchives.makeTempDir().appendingPathComponent("project")
+        try runner.extract(archive: archive, entries: ["project/src/a.txt"],
+                           singleTopLevelDir: "project", to: finalFolder, password: nil)
+        let fm = FileManager.default
+        XCTAssertTrue(fm.fileExists(atPath: finalFolder.appendingPathComponent("src/a.txt").path))
+        XCTAssertFalse(fm.fileExists(atPath: finalFolder.appendingPathComponent("project").path),
+                       "selected-subset extraction must not double-nest as project/project")
     }
 
     func test_version_returns_a_version_number() throws {

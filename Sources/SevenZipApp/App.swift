@@ -82,6 +82,10 @@ struct SevenZipSwiftUIApp: App {
             AboutView()
         }
         .windowResizability(.contentSize)
+
+        Settings {
+            SettingsView()
+        }
     }
 
     private func openArchivePanel() {
@@ -153,6 +157,13 @@ struct ArchiveWindow: View {
     @State private var collisionContinuation: CheckedContinuation<CollisionChoice, Never>?
     @State private var collisionURL: URL?
     @State private var isExtracting = false
+    @State private var toast: ToastState?
+    @State private var passwordError: String?
+    @State private var extractError: String?
+    @State private var extractPassword: String?   // password confirmed for extraction, overrides model.password
+    private enum PasswordContext { case unlock, retryExtraction(selectedPaths: [String]?) }
+    @State private var passwordContext: PasswordContext = .unlock
+    @AppStorage("postExtractAction") private var postExtractAction: PostExtractAction = .revealInFinder
     private let controller = ExtractionController(runner: SevenZipLocator.bundledRunner())
 
     init(archiveURL: URL) {
@@ -168,6 +179,14 @@ struct ArchiveWindow: View {
         content
             .frame(minWidth: 720, minHeight: 460)
             .navigationTitle(archiveURL.lastPathComponent)
+            .overlay(alignment: .bottom) {
+                if let toast {
+                    Toast(message: toast.message,
+                          onOpenFinder: { NSWorkspace.shared.activateFileViewerSelecting([toast.folderURL]) })
+                        .padding(.bottom, 40)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
             .toolbar {
                 ToolbarItemGroup {
                     Button { extractAll() } label: { Label("解压全部", systemImage: "arrow.down.doc") }
@@ -188,8 +207,26 @@ struct ArchiveWindow: View {
             .sheet(isPresented: $showPasswordSheet) {
                 PasswordPromptView(
                     password: $passwordDraft,
-                    onSubmit: { showPasswordSheet = false; model.load(password: passwordDraft) },
-                    onCancel: { showPasswordSheet = false }
+                    errorMessage: passwordError,
+                    onSubmit: {
+                        showPasswordSheet = false
+                        let entered = passwordDraft
+                        passwordError = nil
+                        switch passwordContext {
+                        case .unlock:
+                            model.load(password: entered)
+                        case .retryExtraction(let paths):
+                            extractPassword = entered
+                            previewService.password = entered
+                            runExtraction(selectedPaths: paths)
+                        }
+                        passwordContext = .unlock
+                    },
+                    onCancel: {
+                        showPasswordSheet = false
+                        passwordError = nil
+                        passwordContext = .unlock
+                    }
                 )
             }
             .confirmationDialog(
@@ -201,6 +238,11 @@ struct ArchiveWindow: View {
                 Button("取消", role: .cancel) { finishCollision(.cancel) }
             } message: {
                 Text(collisionURL?.lastPathComponent ?? "")
+            }
+            .alert("解压失败", isPresented: Binding(get: { extractError != nil }, set: { if !$0 { extractError = nil } })) {
+                Button("好", role: .cancel) { extractError = nil }
+            } message: {
+                Text(extractError ?? "")
             }
     }
 
@@ -239,11 +281,11 @@ struct ArchiveWindow: View {
         Task {
             defer { isExtracting = false }
             do {
-                _ = try await controller.extract(
+                let dest = try await controller.extract(
                     archive: archiveURL,
                     entries: model.lastEntries,
                     selectedPaths: selectedPaths,
-                    password: model.password,
+                    password: extractPassword ?? model.password,
                     resolveCollision: { url in
                         await withCheckedContinuation { cont in
                             collisionContinuation = cont
@@ -251,7 +293,24 @@ struct ArchiveWindow: View {
                         }
                     }
                 )
-            } catch { /* CancellationError or extraction failure — surfaced via alert in a later polish pass */ }
+                switch postExtractAction {
+                case .revealInFinder:
+                    NSWorkspace.shared.activateFileViewerSelecting([dest])
+                case .notify:
+                    showToast(message: "已解压到 \(dest.lastPathComponent)", folderURL: dest)
+                case .none:
+                    break
+                }
+            } catch is CancellationError {
+                // user cancelled the collision dialog — stay silent
+            } catch ArchiveError.wrongPassword {
+                passwordDraft = ""
+                passwordError = "密码错误，请重试"
+                passwordContext = .retryExtraction(selectedPaths: selectedPaths)
+                showPasswordSheet = true
+            } catch {
+                extractError = "\(error)"
+            }
         }
     }
 
@@ -259,5 +318,14 @@ struct ArchiveWindow: View {
         collisionURL = nil
         collisionContinuation?.resume(returning: choice)
         collisionContinuation = nil
+    }
+
+    private func showToast(message: String, folderURL: URL) {
+        let state = ToastState(message: message, folderURL: folderURL)
+        withAnimation { toast = state }
+        Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)   // 4s auto-dismiss
+            if toast?.id == state.id { withAnimation { toast = nil } }
+        }
     }
 }
