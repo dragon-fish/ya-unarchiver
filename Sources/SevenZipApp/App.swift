@@ -33,10 +33,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }
 
+/// Tracks whether the current launch is servicing an open-file event, so the
+/// default (nil-value) WindowGroup window can dismiss itself instead of showing
+/// the welcome screen when Finder/`open`/drag launched us with an archive.
+@MainActor
+final class LaunchModel: ObservableObject {
+    var openedViaFile = false
+}
+
 @main
 struct SevenZipSwiftUIApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @Environment(\.openWindow) private var openWindow
+    @StateObject private var launch = LaunchModel()
 
     var body: some Scene {
         WindowGroup(for: URL.self) { $url in
@@ -44,12 +53,20 @@ struct SevenZipSwiftUIApp: App {
                 if let url {
                     ArchiveWindow(archiveURL: url)
                 } else {
-                    WelcomeView()
+                    // The default window SwiftUI always creates at launch carries a
+                    // nil value. On a file launch it is redundant (onOpenURL opens a
+                    // real archive window), so this placeholder dismisses it; on a
+                    // plain launch it shows the welcome screen instead.
+                    LaunchPlaceholderView()
                 }
             }
+            .environmentObject(launch)
             // Spec §入口层: 处理 Finder 双击 / 拖到 Dock / `open` 传入的 open-file 事件，
             // 统一收敛为「打开一个 archive URL」。onOpenURL 是 SwiftUI 对该事件的原生入口。
-            .onOpenURL { openWindow(value: $0) }
+            .onOpenURL { url in
+                launch.openedViaFile = true
+                openWindow(value: url)
+            }
         }
         .commands {
             CommandGroup(replacing: .newItem) {
@@ -70,6 +87,38 @@ struct SevenZipSwiftUIApp: App {
     private func openArchivePanel() {
         if let url = presentArchiveOpenPanel() {
             openWindow(value: url)
+        }
+    }
+}
+
+/// Content of the launch/default window. Waits a moment for an open-file event:
+/// if one arrives, this window is a redundant launch artifact and dismisses
+/// itself; otherwise it becomes the welcome screen.
+struct LaunchPlaceholderView: View {
+    @EnvironmentObject private var launch: LaunchModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var showWelcome = false
+
+    var body: some View {
+        Group {
+            if showWelcome {
+                WelcomeView()
+            } else {
+                Color.clear
+            }
+        }
+        .task {
+            // Poll briefly for an open-file event (onOpenURL fires around launch).
+            for _ in 0..<10 {
+                if launch.openedViaFile { break }
+                try? await Task.sleep(nanoseconds: 20_000_000) // 20ms
+            }
+            if launch.openedViaFile {
+                launch.openedViaFile = false  // reset so later windows still welcome
+                dismiss()
+            } else {
+                showWelcome = true
+            }
         }
     }
 }
