@@ -48,11 +48,21 @@ public struct ExtractOptions: Sendable {
         if path.isEmpty {
             errors.append(.locationEmpty)
         } else {
+            // The location itself need not exist yet — it is created at extraction time
+            // (like Windows 7-Zip). Validity is judged by the nearest EXISTING ancestor:
+            // it must be a writable directory. This blocks impossible paths (crossing a
+            // file, or rooting at an unwritable location like "/") while allowing a new
+            // folder under a writable parent.
+            var probe = location
             var isDir: ObjCBool = false
-            let exists = fm.fileExists(atPath: path, isDirectory: &isDir)
-            if !exists || !isDir.boolValue {
-                errors.append(.locationNotADirectory)
-            } else if !fm.isWritableFile(atPath: path) {
+            while !fm.fileExists(atPath: probe.path, isDirectory: &isDir) {
+                let parent = probe.deletingLastPathComponent()
+                if parent.path == probe.path { break }   // reached root (always exists)
+                probe = parent
+            }
+            if !isDir.boolValue {
+                errors.append(.locationNotADirectory)     // nearest existing ancestor is a file
+            } else if !fm.isWritableFile(atPath: probe.path) {
                 errors.append(.locationNotWritable)
             }
         }

@@ -63,6 +63,11 @@ struct ExtractOptionsView: View {
     }
     private var locationChanged: Bool { locationText != defaults.location.path }
     private var subfolderChanged: Bool { subfolderName != defaults.subfolderName }
+    /// The location is valid but does not exist yet — it will be created on extract.
+    private var locationWillBeCreated: Bool {
+        !locationInvalid
+            && !FileManager.default.fileExists(atPath: ExtractOptions.normalizeLocation(locationText).path)
+    }
 
     // MARK: Body
 
@@ -175,8 +180,12 @@ struct ExtractOptionsView: View {
                     .font(.caption).foregroundStyle(.red)
             }
             if locationInvalid {
-                Label("解压位置必须是已存在且可写的目录", systemImage: "exclamationmark.triangle")
+                Label("解压位置无效:上层路径需为可写的目录", systemImage: "exclamationmark.triangle")
                     .font(.caption).foregroundStyle(.red)
+            }
+            if locationWillBeCreated {
+                Label("将新建此文件夹", systemImage: "folder.badge.plus")
+                    .font(.caption).foregroundStyle(.blue)
             }
             if willDump && !locationInvalid {
                 Label("文件将直接解压到该位置,可能覆盖同名文件", systemImage: "exclamationmark.triangle")

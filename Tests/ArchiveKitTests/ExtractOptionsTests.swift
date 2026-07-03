@@ -23,9 +23,18 @@ final class ExtractOptionsTests: XCTestCase {
         XCTAssertEqual(options(location: dir).validate(), [])
     }
 
-    func test_validate_flags_nonexistent_location() {
-        let missing = URL(fileURLWithPath: "/no/such/dir-\(UUID().uuidString)")
-        XCTAssertEqual(options(location: missing).validate(), [.locationNotADirectory])
+    func test_validate_allows_nonexistent_dir_under_writable_parent() throws {
+        // A not-yet-existing folder under a writable parent is VALID — it is created
+        // at extraction time (Windows 7-Zip behavior), not blocked.
+        let dir = try tempDir()
+        let newSub = dir.appendingPathComponent("brand-new-\(UUID().uuidString)")
+        XCTAssertEqual(options(location: newSub).validate(), [])
+    }
+
+    func test_validate_flags_nonexistent_under_unwritable_ancestor() {
+        // Nothing writable up the chain (nearest existing ancestor is "/") → not writable.
+        let missing = URL(fileURLWithPath: "/no-such-root-\(UUID().uuidString)/foo")
+        XCTAssertEqual(options(location: missing).validate(), [.locationNotWritable])
     }
 
     func test_validate_flags_file_location_as_not_a_directory() throws {
@@ -33,6 +42,15 @@ final class ExtractOptionsTests: XCTestCase {
         let file = dir.appendingPathComponent("a.txt")
         try "x".write(to: file, atomically: true, encoding: .utf8)
         XCTAssertEqual(options(location: file).validate(), [.locationNotADirectory])
+    }
+
+    func test_validate_flags_path_crossing_a_file() throws {
+        // Location path passes THROUGH an existing file → impossible, nearest ancestor is a file.
+        let dir = try tempDir()
+        let file = dir.appendingPathComponent("a.txt")
+        try "x".write(to: file, atomically: true, encoding: .utf8)
+        let under = file.appendingPathComponent("sub")
+        XCTAssertEqual(options(location: under).validate(), [.locationNotADirectory])
     }
 
     func test_validate_rejects_subfolder_names_with_illegal_chars() throws {
