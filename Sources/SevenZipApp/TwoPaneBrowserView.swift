@@ -123,7 +123,11 @@ struct TwoPaneBrowserView: BrowserLayout {
     }
 
     private var fileTable: some View {
-        Table(sortedChildren, selection: $selection) {
+        // Drag-out is attached at the ROW level via `.itemProvider`, not on the name
+        // cell. A cell-level `.onDrag` turns that region into a drag source that
+        // swallows the click, so the icon+name area couldn't select or double-open.
+        // Row-level itemProvider coexists with Table selection and primaryAction.
+        Table(of: ArchiveNode.self, selection: $selection) {
             TableColumn("名称") { (n: ArchiveNode) in
                 HStack(spacing: 6) {
                     Image(nsImage: Self.icon(for: n))
@@ -131,11 +135,15 @@ struct TwoPaneBrowserView: BrowserLayout {
                         .frame(width: 16, height: 16)
                     Text(n.name)
                 }
-                .onDrag { makeDragProvider(n) }
             }
             TableColumn("大小") { n in Text(n.isDirectory ? "—" : Self.byteString(n.entry?.size)) }
             TableColumn("压缩后") { n in Text(n.isDirectory ? "—" : Self.byteString(n.entry?.packedSize)) }
             TableColumn("修改日期") { n in Text(Self.dateString(n.entry?.modified)) }
+        } rows: {
+            ForEach(sortedChildren) { n in
+                TableRow(n)
+                    .itemProvider { makeDragProvider(n) }
+            }
         }
         .contextMenu(forSelectionType: ArchiveNode.ID.self) { ids in
             contextMenu(for: ids)
