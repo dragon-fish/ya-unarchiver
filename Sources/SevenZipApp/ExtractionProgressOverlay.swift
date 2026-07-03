@@ -12,6 +12,7 @@ enum ExtractionProgressState: Equatable {
 /// Non-dismissable; there is no cancel affordance by design.
 struct ExtractionProgressOverlay: View {
     let state: ExtractionProgressState
+    var title: String = "正在解压"
 
     var body: some View {
         ZStack {
@@ -20,10 +21,10 @@ struct ExtractionProgressOverlay: View {
                 switch state {
                 case .indeterminate:
                     ProgressView().controlSize(.large)
-                    Text("正在解压…")
+                    Text("\(title)…")
                 case .determinate(let fraction):
                     ProgressView(value: fraction).frame(width: 220)
-                    Text("正在解压… \(Int(fraction * 100))%")
+                    Text("\(title)… \(Int(fraction * 100))%")
                 }
             }
             .padding(28)

@@ -3,7 +3,7 @@ import ArchiveKit
 
 /// Thread-safe counter for entries extracted so far. `extract` runs the 7z work on a
 /// detached thread; the callback fires there, so increments must be locked.
-private final class ProgressCounter: @unchecked Sendable {
+final class ProgressCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var value = 0
     func increment() -> Int { lock.lock(); defer { lock.unlock() }; value += 1; return value }

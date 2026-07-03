@@ -25,6 +25,23 @@ func presentArchiveOpenPanel() -> URL? {
     return panel.url
 }
 
+/// A create-archive request carried by the create WindowGroup. Codable+Hashable so it
+/// can be a SwiftUI window value; items are the user-selected files/folders.
+struct CreateArchiveRequest: Codable, Hashable {
+    var items: [URL]
+}
+
+/// Picks multiple files AND folders to compress. Returns [] if cancelled/empty.
+@MainActor
+func presentSourceOpenPanel() -> [URL] {
+    let panel = NSOpenPanel()
+    panel.allowsMultipleSelection = true
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = true
+    guard panel.runModal() == .OK else { return [] }
+    return panel.urls
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -68,10 +85,21 @@ struct SevenZipSwiftUIApp: App {
                 openWindow(value: url)
             }
         }
+
+        WindowGroup(for: CreateArchiveRequest.self) { $request in
+            if let request {
+                CreateArchiveWindow(items: request.items)
+            }
+        }
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("打开…") { openArchivePanel() }
                     .keyboardShortcut("o")
+                Button("新建压缩包…") {
+                    let items = presentSourceOpenPanel()
+                    if !items.isEmpty { openWindow(value: CreateArchiveRequest(items: items)) }
+                }
+                .keyboardShortcut("n")
             }
             CommandGroup(replacing: .appInfo) {
                 Button("关于 YA Unarchiver") { openWindow(id: "about") }
@@ -137,6 +165,10 @@ struct WelcomeView: View {
                 if let url = presentArchiveOpenPanel() { openWindow(value: url) }
             }
             .buttonStyle(.borderedProminent)
+            Button("创建压缩包…") {
+                let items = presentSourceOpenPanel()
+                if !items.isEmpty { openWindow(value: CreateArchiveRequest(items: items)) }
+            }
         }
         .frame(minWidth: 480, minHeight: 300)
         .dropDestination(for: URL.self) { urls, _ in
@@ -392,6 +424,78 @@ struct ArchiveWindow: View {
         Task {
             try? await Task.sleep(nanoseconds: 4_000_000_000)   // 4s auto-dismiss
             if toast?.id == state.id { withAnimation { toast = nil } }
+        }
+    }
+}
+
+/// Hosts the create-archive dialog, progress overlay, collision dialog and feedback.
+struct CreateArchiveWindow: View {
+    let items: [URL]
+    @Environment(\.dismiss) private var dismiss
+    @State private var isCompressing = false
+    @State private var progress: ExtractionProgressState?
+    @State private var collisionURL: URL?
+    @State private var collisionContinuation: CheckedContinuation<CollisionChoice, Never>?
+    @State private var compressError: String?
+    @AppStorage("postExtractAction") private var postExtractAction: PostExtractAction = .revealInFinder
+    private let controller = CompressionController(runner: SevenZipLocator.bundledRunner())
+
+    var body: some View {
+        CreateArchiveView(
+            defaults: CompressionOptions.defaults(items: items),
+            onCreate: { opts in runCompression(opts) },
+            onCancel: { dismiss() }
+        )
+        .overlay { if let progress { ExtractionProgressOverlay(state: progress, title: "正在压缩") } }
+        .confirmationDialog(
+            "压缩包已存在",
+            isPresented: Binding(get: { collisionURL != nil }, set: { if !$0 { finishCollision(.cancel) } })
+        ) {
+            Button("保存为带序号的新名称") { finishCollision(.numbered) }
+            Button("覆盖", role: .destructive) { finishCollision(.deleteExisting) }
+            Button("取消", role: .cancel) { finishCollision(.cancel) }
+        } message: { Text(collisionURL?.lastPathComponent ?? "") }
+        .alert("压缩失败", isPresented: Binding(get: { compressError != nil }, set: { if !$0 { compressError = nil } })) {
+            Button("好", role: .cancel) { compressError = nil }
+        } message: { Text(compressError ?? "") }
+    }
+
+    private func finishCollision(_ choice: CollisionChoice) {
+        collisionURL = nil
+        collisionContinuation?.resume(returning: choice)
+        collisionContinuation = nil
+    }
+
+    private func runCompression(_ options: CompressionOptions) {
+        guard !isCompressing else { return }
+        isCompressing = true
+        Task {
+            defer { isCompressing = false; progress = nil }
+            do {
+                let out = try await controller.compress(
+                    options: options,
+                    resolveCollision: { url in
+                        await withCheckedContinuation { cont in
+                            collisionContinuation = cont
+                            collisionURL = url
+                        }
+                    },
+                    onProgress: { completed, total in
+                        progress = (completed > 0 && total > 0)
+                            ? .determinate(fraction: min(1, Double(completed) / Double(total)))
+                            : .indeterminate
+                    }
+                )
+                switch postExtractAction {
+                case .revealInFinder: NSWorkspace.shared.activateFileViewerSelecting([out])
+                case .notify, .none: break
+                }
+                dismiss()
+            } catch is CancellationError {
+                // user cancelled the collision dialog — stay on the dialog
+            } catch {
+                compressError = "\(error)"
+            }
         }
     }
 }

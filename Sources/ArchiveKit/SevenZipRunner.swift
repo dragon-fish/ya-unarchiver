@@ -40,16 +40,24 @@ public final class SevenZipRunner: Sendable {
         line.hasPrefix("- ")
     }
 
+    /// True when a `7zz a -bb1` output line announces an added file (`+ some/path`).
+    /// Directories are not logged; only regular files get a `+` line.
+    public static func isAddedLine(_ line: String) -> Bool {
+        line.hasPrefix("+ ")
+    }
+
     /// Like `run`, but reads stdout incrementally and invokes `onLine` for each complete
     /// line as it arrives (used to stream `-bb1` per-entry progress). stderr is read to end
     /// afterwards for error classification, matching `run`.
-    private func runStreaming(_ arguments: [String], onLine: @Sendable (String) -> Void) throws -> RunResult {
+    private func runStreaming(_ arguments: [String], workingDirectory: URL? = nil,
+                             onLine: @Sendable (String) -> Void) throws -> RunResult {
         guard FileManager.default.isExecutableFile(atPath: executableURL.path) else {
             throw ArchiveError.binaryNotFound
         }
         let process = Process()
         process.executableURL = executableURL
         process.arguments = arguments
+        if let workingDirectory { process.currentDirectoryURL = workingDirectory }
         let outPipe = Pipe(), errPipe = Pipe()
         process.standardOutput = outPipe
         process.standardError = errPipe
@@ -179,5 +187,20 @@ public final class SevenZipRunner: Sendable {
         try extract(archive: archive, entries: entries, to: temp, password: password,
                     onEntryExtracted: onEntryExtracted)
         try fm.moveItem(at: temp.appendingPathComponent(topDir), to: finalFolder)
+    }
+
+    /// Runs `7zz a` with the given args in `workingDirectory` (so items are stored by
+    /// their relative paths). `onFileAdded` fires once per added regular file (`-bb1`).
+    public func compress(arguments: [String], workingDirectory: URL,
+                         onFileAdded: (@Sendable () -> Void)? = nil) throws {
+        let result = try runStreaming(arguments, workingDirectory: workingDirectory) { line in
+            if SevenZipRunner.isAddedLine(line) { onFileAdded?() }
+        }
+        guard result.code == 0 else {
+            let combined = result.stdout + result.stderr
+            throw ArchiveError.executionFailed(
+                code: result.code,
+                message: combined.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
     }
 }
