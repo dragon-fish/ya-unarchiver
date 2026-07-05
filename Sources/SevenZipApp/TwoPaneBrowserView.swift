@@ -25,6 +25,8 @@ struct TwoPaneBrowserView: BrowserLayout {
     /// Non-nil while a file is shown in the QuickLook panel.
     @State private var previewURL: URL?
 
+    @AppStorage("browserViewMode") private var viewMode: BrowserViewMode = .list
+
     /// Path-bar folder icon size, tied to the `.callout` text metric (not a raw
     /// literal) so it tracks the system text size.
     @ScaledMetric(relativeTo: .callout) private var pathIconSize: CGFloat = 16
@@ -63,7 +65,17 @@ struct TwoPaneBrowserView: BrowserLayout {
             .navigationSplitViewColumnWidth(min: 180, ideal: 240)
         } detail: {
             VStack(spacing: 0) {
-                fileTable
+                Group {
+                    switch viewMode {
+                    case .list: fileTable
+                    case .icon: fileGrid
+                    }
+                }
+                .onKeyPress(.space) {
+                    guard let file = singleSelectedFile else { return .ignored }
+                    Task { previewURL = try? await previewService.url(for: file) }
+                    return .handled
+                }
                 Divider()
                 pathBar
             }
@@ -83,6 +95,15 @@ struct TwoPaneBrowserView: BrowserLayout {
                 }
                 .disabled(currentDirectoryID.isEmpty)
                 .help("返回上一层")
+            }
+            ToolbarItem(placement: .navigation) {
+                Picker("视图", selection: $viewMode) {
+                    ForEach(BrowserViewMode.allCases) { m in
+                        Image(systemName: m.symbol).tag(m)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .help("切换列表 / 图标视图")
             }
         }
     }
@@ -158,11 +179,6 @@ struct TwoPaneBrowserView: BrowserLayout {
             contextMenu(for: ids)
         } primaryAction: { ids in
             handlePrimaryAction(ids)
-        }
-        .onKeyPress(.space) {
-            guard let file = singleSelectedFile else { return .ignored }
-            Task { previewURL = try? await previewService.url(for: file) }
-            return .handled
         }
     }
 
