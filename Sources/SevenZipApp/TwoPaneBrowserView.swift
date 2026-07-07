@@ -68,7 +68,18 @@ struct TwoPaneBrowserView: BrowserLayout {
                 Group {
                     switch viewMode {
                     case .list: fileTable
-                    case .icon: fileGrid
+                    case .icon:
+                        IconGridView(
+                            nodes: sortedChildren,
+                            selection: $selection,
+                            previewService: previewService,
+                            iconProvider: { Self.icon(for: $0) },
+                            onPrimaryAction: { handlePrimaryAction([$0]) },
+                            onQuickLook: {
+                                guard let file = singleSelectedFile else { return }
+                                Task { previewURL = try? await previewService.url(for: file) }
+                            }
+                        )
                     }
                 }
                 .onKeyPress(.space) {
@@ -180,59 +191,6 @@ struct TwoPaneBrowserView: BrowserLayout {
         } primaryAction: { ids in
             handlePrimaryAction(ids)
         }
-    }
-
-    /// Icon side length in the grid (fixed; no size slider in v1).
-    private var gridIconSide: CGFloat { 48 }
-
-    /// Large-icon grid alternative to `fileTable`. Shares all interaction helpers.
-    private var fileGrid: some View {
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 12)], spacing: 12) {
-                ForEach(sortedChildren) { n in
-                    gridCell(n)
-                }
-            }
-            .padding(12)
-        }
-    }
-
-    private func gridCell(_ n: ArchiveNode) -> some View {
-        VStack(spacing: 4) {
-            Image(nsImage: Self.icon(for: n))
-                .resizable()
-                .frame(width: gridIconSide, height: gridIconSide)
-            Text(n.name)
-                .font(.callout)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-        }
-        .frame(width: 88)
-        .padding(6)
-        .background(
-            selection.contains(n.id) ? Color.accentColor.opacity(0.25) : Color.clear,
-            in: RoundedRectangle(cornerRadius: 8)
-        )
-        .contentShape(Rectangle())
-        .onTapGesture { toggleSelection(n.id) }
-        .simultaneousGesture(TapGesture(count: 2).onEnded { handlePrimaryAction([n.id]) })
-        .onDrag { makeDragProvider(n) }
-        .contextMenu { contextMenu(for: contextTargets(n.id)) }
-    }
-
-    /// Single-click selects one; Cmd-click toggles membership (grid multi-select).
-    private func toggleSelection(_ id: ArchiveNode.ID) {
-        if NSEvent.modifierFlags.contains(.command) {
-            if selection.contains(id) { selection.remove(id) } else { selection.insert(id) }
-        } else {
-            selection = [id]
-        }
-    }
-
-    /// Right-click acts on the whole selection if the clicked item is in it,
-    /// otherwise on just that item (Finder behaviour).
-    private func contextTargets(_ id: ArchiveNode.ID) -> Set<ArchiveNode.ID> {
-        selection.contains(id) ? selection : [id]
     }
 
     // MARK: - Navigation
