@@ -78,7 +78,8 @@ struct TwoPaneBrowserView: BrowserLayout {
                             onQuickLook: {
                                 guard let file = singleSelectedFile else { return }
                                 Task { previewURL = try? await previewService.url(for: file) }
-                            }
+                            },
+                            menuActions: gridMenuActions
                         )
                     }
                 }
@@ -222,6 +223,24 @@ struct TwoPaneBrowserView: BrowserLayout {
         }
         Button("解压选中…") { onExtractSelected(ids) }
             .disabled(ids.isEmpty)
+    }
+
+    /// Same action set as `contextMenu(for:)` but as data, for the grid's AppKit NSMenu.
+    private func gridMenuActions(_ ids: Set<ArchiveNode.ID>) -> [GridMenuAction] {
+        var actions: [GridMenuAction] = []
+        if ids.count == 1, let id = ids.first,
+           let node = Self.find(id: id, in: root), !node.isDirectory {
+            actions.append(GridMenuAction(title: "用默认程序打开", isEnabled: true) {
+                Task { await previewService.open(node) }
+            })
+            actions.append(GridMenuAction(title: "快速查看", isEnabled: true) {
+                Task { previewURL = try? await previewService.url(for: node) }
+            })
+        }
+        actions.append(GridMenuAction(title: "解压选中…", isEnabled: !ids.isEmpty) {
+            onExtractSelected(ids)
+        })
+        return actions
     }
 
     // MARK: - Helpers

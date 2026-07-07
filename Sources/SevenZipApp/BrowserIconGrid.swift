@@ -2,6 +2,15 @@ import SwiftUI
 import AppKit
 import ArchiveKit
 
+/// A single right-click menu entry, rendered by AppKit `NSMenu` in grid mode and
+/// derived from the same source as the list-mode SwiftUI `.contextMenu`, so the two
+/// never drift apart.
+struct GridMenuAction {
+    let title: String
+    let isEnabled: Bool
+    let perform: () -> Void
+}
+
 /// AppKit-backed large-icon grid: a Finder-style alternative to the SwiftUI
 /// `Table`, wrapping `NSCollectionView` so selection (rubber-band, ⇧-range,
 /// arrow keys), space-QuickLook, double-click, right-click and drag-out all
@@ -15,6 +24,8 @@ struct IconGridView: NSViewRepresentable {
     let onPrimaryAction: (ArchiveNode.ID) -> Void
     /// Space on a single selected file → QuickLook (reuses the list-mode path).
     let onQuickLook: () -> Void
+    /// Right-click menu for the given target ids (clicked item auto-selected first).
+    let menuActions: (Set<ArchiveNode.ID>) -> [GridMenuAction]
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -36,6 +47,34 @@ struct IconGridView: NSViewRepresentable {
         cv.register(IconGridItem.self, forItemWithIdentifier: IconGridItem.identifier)
         cv.onQuickLook = { [weak coordinator = context.coordinator] in
             coordinator?.parent.onQuickLook()
+        }
+
+        let doubleClick = NSClickGestureRecognizer(target: context.coordinator,
+                                                   action: #selector(Coordinator.handleDoubleClick(_:)))
+        doubleClick.numberOfClicksRequired = 2
+        doubleClick.delaysPrimaryMouseButtonEvents = false   // don't swallow single-click selection
+        cv.addGestureRecognizer(doubleClick)
+
+        cv.onReturnKey = { [weak coordinator = context.coordinator] in
+            coordinator?.primaryActionOnSelection()
+        }
+
+        cv.idForIndexPath = { [weak coordinator = context.coordinator] indexPath in
+            guard let nodes = coordinator?.parent.nodes, indexPath.item < nodes.count else { return nil }
+            return nodes[indexPath.item].id
+        }
+        cv.currentSelectionIDs = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.selection ?? []
+        }
+        cv.selectSingle = { [weak cv, weak coordinator = context.coordinator] indexPath in
+            guard let cv else { return }
+            cv.deselectItems(at: cv.selectionIndexPaths)
+            cv.selectItems(at: [indexPath], scrollPosition: [])
+            // selectItems doesn't fire the delegate, so mirror into the binding manually.
+            coordinator?.syncSelectionAfterProgrammaticChange(cv)
+        }
+        cv.menuActionsFor = { [weak coordinator = context.coordinator] targets in
+            coordinator?.parent.menuActions(targets) ?? []
         }
 
         let scroll = NSScrollView()
@@ -67,6 +106,7 @@ struct IconGridView: NSViewRepresentable {
         }
     }
 
+    @MainActor
     final class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionViewDelegate {
         var parent: IconGridView
         /// Snapshot of the ids currently loaded, to detect when a reload is needed.
@@ -101,6 +141,29 @@ struct IconGridView: NSViewRepresentable {
             let ids = GridSelectionMapping.ids(forRows: rows, in: parent.nodes)
             if parent.selection != ids { parent.selection = ids }
         }
+
+        @objc func handleDoubleClick(_ gesture: NSClickGestureRecognizer) {
+            guard let cv = gesture.view as? NSCollectionView else { return }
+            let point = gesture.location(in: cv)
+            guard let indexPath = cv.indexPathForItem(at: point),
+                  indexPath.item < parent.nodes.count else { return }
+            parent.onPrimaryAction(parent.nodes[indexPath.item].id)
+        }
+
+        /// Return key opens the single selected item (matches Finder).
+        func primaryActionOnSelection() {
+            let rows = parent.selection.isEmpty
+                ? []
+                : GridSelectionMapping.rows(forIDs: parent.selection, in: parent.nodes)
+            guard rows.count == 1 else { return }
+            parent.onPrimaryAction(parent.nodes[rows[0]].id)
+        }
+
+        /// Mirror a programmatic selection change (e.g. right-click auto-select) into the binding.
+        func syncSelectionAfterProgrammaticChange(_ cv: NSCollectionView) {
+            let ids = GridSelectionMapping.ids(forRows: cv.selectionIndexPaths.map(\.item), in: parent.nodes)
+            if parent.selection != ids { parent.selection = ids }
+        }
     }
 }
 
@@ -108,13 +171,58 @@ struct IconGridView: NSViewRepresentable {
 /// letting arrow-key selection fall through to the native implementation.
 final class KeyCapturingCollectionView: NSCollectionView {
     var onQuickLook: (() -> Void)?
+    var onReturnKey: (() -> Void)?
+
+    /// Returns the current selection ids (collection view is the source of truth).
+    var currentSelectionIDs: (() -> Set<ArchiveNode.ID>)?
+    /// Makes the clicked item the sole selection when it's outside the current one.
+    var selectSingle: ((IndexPath) -> Void)?
+    /// Builds the menu entries for a set of target ids.
+    var menuActionsFor: ((Set<ArchiveNode.ID>) -> [GridMenuAction])?
+    /// Maps a hit index path to its node id.
+    var idForIndexPath: ((IndexPath) -> ArchiveNode.ID?)?
 
     override func keyDown(with event: NSEvent) {
-        if event.charactersIgnoringModifiers == " " {
+        switch event.charactersIgnoringModifiers {
+        case " ":
             onQuickLook?()
-        } else {
+        case "\r":
+            onReturnKey?()
+        default:
             super.keyDown(with: event)
         }
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let point = convert(event.locationInWindow, from: nil)
+        guard let indexPath = indexPathForItem(at: point),
+              let clickedID = idForIndexPath?(indexPath) else { return nil }
+
+        // Finder behaviour: right-clicking an item outside the selection selects just it.
+        let current = currentSelectionIDs?() ?? []
+        let targets: Set<ArchiveNode.ID>
+        if current.contains(clickedID) {
+            targets = current
+        } else {
+            selectSingle?(indexPath)
+            targets = [clickedID]
+        }
+
+        guard let actions = menuActionsFor?(targets), !actions.isEmpty else { return nil }
+        let menu = NSMenu()
+        for action in actions {
+            let item = NSMenuItem(title: action.title,
+                                  action: #selector(GridMenuTarget.fire(_:)),
+                                  keyEquivalent: "")
+            item.isEnabled = action.isEnabled
+            let target = GridMenuTarget(action.perform)
+            item.representedObject = target
+            item.target = target
+            menu.addItem(item)
+            objc_setAssociatedObject(menu, Unmanaged.passUnretained(item).toOpaque(),
+                                     target, .OBJC_ASSOCIATION_RETAIN)
+        }
+        return menu
     }
 }
 
@@ -175,4 +283,11 @@ final class IconGridItem: NSCollectionViewItem {
             ? NSColor.controlAccentColor.withAlphaComponent(0.25).cgColor
             : NSColor.clear.cgColor
     }
+}
+
+/// Retains and fires a `GridMenuAction.perform` closure for an `NSMenuItem`.
+private final class GridMenuTarget: NSObject {
+    private let action: () -> Void
+    init(_ action: @escaping () -> Void) { self.action = action; super.init() }
+    @objc func fire(_ sender: NSMenuItem) { action() }
 }
