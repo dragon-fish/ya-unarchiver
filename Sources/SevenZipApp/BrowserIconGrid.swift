@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import ArchiveKit
+import UniformTypeIdentifiers
 
 /// A single right-click menu entry, rendered by AppKit `NSMenu` in grid mode and
 /// derived from the same source as the list-mode SwiftUI `.contextMenu`, so the two
@@ -37,6 +38,7 @@ struct IconGridView: NSViewRepresentable {
         layout.sectionInset = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
 
         let cv = KeyCapturingCollectionView()
+        cv.setDraggingSourceOperationMask(.copy, forLocal: false)
         cv.collectionViewLayout = layout
         cv.dataSource = context.coordinator
         cv.delegate = context.coordinator
@@ -107,10 +109,19 @@ struct IconGridView: NSViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionViewDelegate {
+    final class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionViewDelegate,
+                             NSFilePromiseProviderDelegate {
         var parent: IconGridView
         /// Snapshot of the ids currently loaded, to detect when a reload is needed.
         var currentIDs: [String] = []
+
+        /// A dedicated queue for fulfilling file promises off the main thread.
+        private let promiseQueue: OperationQueue = {
+            let q = OperationQueue()
+            q.name = "IconGrid.filePromise"
+            q.qualityOfService = .userInitiated
+            return q
+        }()
 
         init(_ parent: IconGridView) { self.parent = parent }
 
@@ -163,6 +174,51 @@ struct IconGridView: NSViewRepresentable {
         func syncSelectionAfterProgrammaticChange(_ cv: NSCollectionView) {
             let ids = GridSelectionMapping.ids(forRows: cv.selectionIndexPaths.map(\.item), in: parent.nodes)
             if parent.selection != ids { parent.selection = ids }
+        }
+
+        // MARK: - Drag out to Finder (NSFilePromiseProvider)
+
+        func collectionView(_ cv: NSCollectionView,
+                            pasteboardWriterForItemAt indexPath: IndexPath) -> NSPasteboardWriting? {
+            guard indexPath.item < parent.nodes.count else { return nil }
+            let node = parent.nodes[indexPath.item]
+            let ext = (node.name as NSString).pathExtension
+            let fileType = node.isDirectory
+                ? UTType.folder.identifier
+                : (UTType(filenameExtension: ext) ?? .data).identifier
+            let provider = NSFilePromiseProvider(fileType: fileType, delegate: self)
+            provider.userInfo = node
+            return provider
+        }
+
+        func operationQueue(for filePromiseProvider: NSFilePromiseProvider) -> OperationQueue {
+            promiseQueue
+        }
+
+        func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider,
+                                 fileNameForType fileType: String) -> String {
+            (filePromiseProvider.userInfo as? ArchiveNode)?.name ?? "item"
+        }
+
+        // AppKit calls this one off the main thread (on `promiseQueue`), per
+        // `NSFilePromiseProviderDelegate`'s `NS_SWIFT_NONISOLATED` annotation — unlike
+        // the rest of the delegate, which is `@MainActor`. Kept `nonisolated` to match;
+        // the actual extraction still hops to `@MainActor` to call `previewService`.
+        nonisolated func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider,
+                                 writePromiseTo url: URL,
+                                 completionHandler: @escaping @Sendable (Error?) -> Void) {
+            guard let node = filePromiseProvider.userInfo as? ArchiveNode else {
+                completionHandler(CocoaError(.fileNoSuchFile)); return
+            }
+            Task { @MainActor in
+                do {
+                    let source = try await self.parent.previewService.url(for: node)
+                    try FileManager.default.copyItem(at: source, to: url)
+                    completionHandler(nil)
+                } catch {
+                    completionHandler(error)
+                }
+            }
         }
     }
 }
