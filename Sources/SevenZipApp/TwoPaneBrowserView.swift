@@ -4,6 +4,15 @@ import AppKit
 import UniformTypeIdentifiers
 import ArchiveKit
 
+/// Right-pane content render mode. Persisted via @AppStorage.
+enum BrowserViewMode: String, CaseIterable, Identifiable {
+    case list
+    case icon
+    var id: String { rawValue }
+    var symbol: String { self == .list ? "list.bullet" : "square.grid.2x2" }
+    var label: String { self == .list ? "列表" : "图标" }
+}
+
 struct TwoPaneBrowserView: BrowserLayout {
     let root: ArchiveNode
     @Binding var selection: Set<ArchiveNode.ID>
@@ -15,6 +24,8 @@ struct TwoPaneBrowserView: BrowserLayout {
 
     /// Non-nil while a file is shown in the QuickLook panel.
     @State private var previewURL: URL?
+
+    @AppStorage("browserViewMode") private var viewMode: BrowserViewMode = .list
 
     /// Path-bar folder icon size, tied to the `.callout` text metric (not a raw
     /// literal) so it tracks the system text size.
@@ -54,7 +65,29 @@ struct TwoPaneBrowserView: BrowserLayout {
             .navigationSplitViewColumnWidth(min: 180, ideal: 240)
         } detail: {
             VStack(spacing: 0) {
-                fileTable
+                Group {
+                    switch viewMode {
+                    case .list: fileTable
+                    case .icon:
+                        IconGridView(
+                            nodes: sortedChildren,
+                            selection: $selection,
+                            previewService: previewService,
+                            iconProvider: { Self.icon(for: $0) },
+                            onPrimaryAction: { handlePrimaryAction([$0]) },
+                            onQuickLook: {
+                                guard let file = singleSelectedFile else { return }
+                                Task { previewURL = try? await previewService.url(for: file) }
+                            },
+                            menuActions: gridMenuActions
+                        )
+                    }
+                }
+                .onKeyPress(.space) {
+                    guard let file = singleSelectedFile else { return .ignored }
+                    Task { previewURL = try? await previewService.url(for: file) }
+                    return .handled
+                }
                 Divider()
                 pathBar
             }
@@ -74,6 +107,15 @@ struct TwoPaneBrowserView: BrowserLayout {
                 }
                 .disabled(currentDirectoryID.isEmpty)
                 .help("返回上一层")
+            }
+            ToolbarItem(placement: .navigation) {
+                Picker("视图", selection: $viewMode) {
+                    ForEach(BrowserViewMode.allCases) { m in
+                        Image(systemName: m.symbol).tag(m)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .help("切换列表 / 图标视图")
             }
         }
     }
@@ -150,11 +192,6 @@ struct TwoPaneBrowserView: BrowserLayout {
         } primaryAction: { ids in
             handlePrimaryAction(ids)
         }
-        .onKeyPress(.space) {
-            guard let file = singleSelectedFile else { return .ignored }
-            Task { previewURL = try? await previewService.url(for: file) }
-            return .handled
-        }
     }
 
     // MARK: - Navigation
@@ -186,6 +223,24 @@ struct TwoPaneBrowserView: BrowserLayout {
         }
         Button("解压选中…") { onExtractSelected(ids) }
             .disabled(ids.isEmpty)
+    }
+
+    /// Same action set as `contextMenu(for:)` but as data, for the grid's AppKit NSMenu.
+    private func gridMenuActions(_ ids: Set<ArchiveNode.ID>) -> [GridMenuAction] {
+        var actions: [GridMenuAction] = []
+        if ids.count == 1, let id = ids.first,
+           let node = Self.find(id: id, in: root), !node.isDirectory {
+            actions.append(GridMenuAction(title: "用默认程序打开", isEnabled: true) {
+                Task { await previewService.open(node) }
+            })
+            actions.append(GridMenuAction(title: "快速查看", isEnabled: true) {
+                Task { previewURL = try? await previewService.url(for: node) }
+            })
+        }
+        actions.append(GridMenuAction(title: "解压选中…", isEnabled: !ids.isEmpty) {
+            onExtractSelected(ids)
+        })
+        return actions
     }
 
     // MARK: - Helpers
